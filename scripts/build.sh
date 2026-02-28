@@ -19,8 +19,20 @@ if [ -z "$IN_DOCKER" ] && ! command -v ${CROSS_PREFIX}g++ &>/dev/null; then
             -e IN_DOCKER=1 \
             move-anything-builder ./scripts/build.sh
         exit $?
+    elif [ -f "/tmp/zig/zig" ] && [ -x "/tmp/zig/zig" ]; then
+        echo "Cross-compiler not found, using zig (at /tmp/zig/zig)..."
+        ZIG_WRAPPER_DIR="$(mktemp -d)"
+        cat > "$ZIG_WRAPPER_DIR/aarch64-linux-gnu-g++" << 'ZIGEOF'
+#!/bin/bash
+exec /tmp/zig/zig c++ -target aarch64-linux-gnu "$@"
+ZIGEOF
+        chmod +x "$ZIG_WRAPPER_DIR/aarch64-linux-gnu-g++"
+        export PATH="$ZIG_WRAPPER_DIR:$PATH"
+        CROSS_PREFIX="aarch64-linux-gnu-"
     else
         echo "Cross-compiler and Docker not found; falling back to native compiler for compile check..."
+        echo "WARNING: Native build produces Mach-O binary — not deployable to Move hardware."
+        echo "         Install zig to /tmp/zig/ or install Docker to cross-compile properly."
         CROSS_PREFIX=""
     fi
 fi
