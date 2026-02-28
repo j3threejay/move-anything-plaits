@@ -231,7 +231,12 @@ static void set_param(void* instance, const char* key, const char* val) {
     plaits_instance_t* inst = (plaits_instance_t*)instance;
 
     if (strcmp(key, "engine") == 0) {
-        int v = atoi(val);
+        // Accept engine name string (enum) or numeric index (legacy)
+        int v = -1;
+        for (int i = 0; i < kNumEngines; i++) {
+            if (strcmp(val, kEngineNames[i]) == 0) { v = i; break; }
+        }
+        if (v < 0) v = atoi(val);  // fallback: numeric string
         inst->engine = (v < 0) ? 0 : (v >= kNumEngines) ? kNumEngines - 1 : v;
     } else if (strcmp(key, "harmonics") == 0) {
         float v = (float)atof(val);
@@ -282,7 +287,7 @@ static void set_param(void* instance, const char* key, const char* val) {
 static int get_single_param(const plaits_instance_t* inst, const char* key,
                              char* buf, int buf_len) {
     if (strcmp(key, "engine") == 0)
-        return snprintf(buf, buf_len, "%d", inst->engine);
+        return snprintf(buf, buf_len, "%s", kEngineNames[inst->engine]);
     if (strcmp(key, "harmonics") == 0)
         return snprintf(buf, buf_len, "%.3f", inst->harmonics);
     if (strcmp(key, "timbre") == 0)
@@ -335,7 +340,7 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                   "\"knobs\":[\"engine\",\"harmonics\",\"timbre\",\"morph\","
                               "\"decay\",\"lpg_colour\",\"fm_amount\",\"volume\"],"
                   "\"params\":["
-                    "{\"key\":\"engine\",\"label\":\"Engine\"},"
+                    "{\"key\":\"engine\",\"label\":\"Engine\",\"type\":\"enum\"},"
                     "{\"key\":\"harmonics\",\"label\":\"Harmonics\"},"
                     "{\"key\":\"timbre\",\"label\":\"Timbre\"},"
                     "{\"key\":\"morph\",\"label\":\"Morph\"},"
@@ -360,16 +365,25 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
     }
 
     // chain_params — parameter metadata for Shadow UI knob editing
+    // Returns engine-specific names for harmonics, timbre, morph.
     if (strcmp(key, "chain_params") == 0) {
-        const char* json =
+        const char* h = kEngineLabels[inst->engine][0];
+        const char* t = kEngineLabels[inst->engine][1];
+        const char* m = kEngineLabels[inst->engine][2];
+        int len = snprintf(buf, buf_len,
             "["
-              "{\"key\":\"engine\",\"name\":\"Engine\",\"type\":\"int\","
-               "\"min\":0,\"max\":23,\"default\":0},"
-              "{\"key\":\"harmonics\",\"name\":\"Harmonics\",\"type\":\"float\","
+              "{\"key\":\"engine\",\"name\":\"Engine\",\"type\":\"enum\","
+               "\"options\":[\"VA VCF\",\"Phase Dist\",\"6-Op I\",\"6-Op II\",\"6-Op III\","
+               "\"Wave Terr\",\"Str Mach\",\"Chiptune\",\"V. Analog\",\"Waveshape\","
+               "\"FM\",\"Grain\",\"Additive\",\"Wavetable\",\"Chord\",\"Speech\","
+               "\"Swarm\",\"Noise\",\"Particle\",\"String\",\"Modal\","
+               "\"Bass Drum\",\"Snare Drum\",\"Hi-Hat\"],\"default\":\"VA VCF\","
+               "\"refreshes_labels\":true},"
+              "{\"key\":\"harmonics\",\"name\":\"%s\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
-              "{\"key\":\"timbre\",\"name\":\"Timbre\",\"type\":\"float\","
+              "{\"key\":\"timbre\",\"name\":\"%s\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
-              "{\"key\":\"morph\",\"name\":\"Morph\",\"type\":\"float\","
+              "{\"key\":\"morph\",\"name\":\"%s\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
               "{\"key\":\"decay\",\"name\":\"Decay\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
@@ -391,10 +405,9 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                "\"min\":-3,\"max\":3,\"default\":0},"
               "{\"key\":\"volume\",\"name\":\"Volume\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.7}"
-            "]";
-        int len = (int)strlen(json);
-        if (len >= buf_len) return -1;
-        memcpy(buf, json, len + 1);
+            "]",
+            h, t, m);
+        if (len < 0 || len >= buf_len) return -1;
         return len;
     }
 
