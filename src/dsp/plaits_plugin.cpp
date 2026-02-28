@@ -12,6 +12,7 @@ extern "C" {
 #include <cstdlib>
 #include <cstdio>
 #include <cmath>
+#include <new>
 #include <algorithm>
 
 using std::min;
@@ -77,8 +78,9 @@ static void* create_instance(const char* module_dir, const char* json_defaults) 
     (void)module_dir;
     (void)json_defaults;
 
-    plaits_instance_t* inst =
-        (plaits_instance_t*)calloc(1, sizeof(plaits_instance_t));
+    // Must use new (not calloc) — Engine subclasses have virtual functions;
+    // calloc zeros vtable pointers causing a crash on the first virtual call.
+    plaits_instance_t* inst = new (std::nothrow) plaits_instance_t();
     if (!inst) return nullptr;
 
     // Initialize Plaits voice
@@ -115,7 +117,7 @@ static void* create_instance(const char* module_dir, const char* json_defaults) 
 // ──────────────────────────────────────────────────────────────────────────
 
 static void destroy_instance(void* instance) {
-    free(instance);
+    delete (plaits_instance_t*)instance;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
