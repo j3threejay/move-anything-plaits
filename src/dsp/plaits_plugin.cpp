@@ -163,19 +163,212 @@ static void on_midi(void* instance, const uint8_t* msg, int len, int source) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// set_param  (stub)
+// Engine names (registration order from plaits::Voice::Init)
+// ──────────────────────────────────────────────────────────────────────────
+
+static const char* kEngineNames[] = {
+    "VA VCF",     // 0  Virtual Analog VCF  [engine2]
+    "Phase Dist", // 1  Phase Distortion    [engine2]
+    "6-Op I",     // 2  Six Op FM (1)       [engine2]
+    "6-Op II",    // 3  Six Op FM (2)       [engine2]
+    "6-Op III",   // 4  Six Op FM (3)       [engine2]
+    "Wave Terr",  // 5  Wave Terrain        [engine2]
+    "Str Mach",   // 6  String Machine      [engine2]
+    "Chiptune",   // 7  Chiptune            [engine2]
+    "V. Analog",  // 8  Virtual Analog      [engine]
+    "Waveshape",  // 9  Waveshaping         [engine]
+    "FM",         // 10 FM                  [engine]
+    "Grain",      // 11 Granular            [engine]
+    "Additive",   // 12 Additive            [engine]
+    "Wavetable",  // 13 Wavetable           [engine]
+    "Chord",      // 14 Chord               [engine]
+    "Speech",     // 15 Speech              [engine]
+    "Swarm",      // 16 Swarm               [engine]
+    "Noise",      // 17 Noise               [engine]
+    "Particle",   // 18 Particle            [engine]
+    "String",     // 19 Karplus-Strong      [engine]
+    "Modal",      // 20 Modal resonator     [engine]
+    "Bass Drum",  // 21                     [engine]
+    "Snare Drum", // 22                     [engine]
+    "Hi-Hat",     // 23                     [engine]
+};
+static const int kNumEngines = 24;
+
+// ──────────────────────────────────────────────────────────────────────────
+// set_param
 // ──────────────────────────────────────────────────────────────────────────
 
 static void set_param(void* instance, const char* key, const char* val) {
-    (void)instance; (void)key; (void)val;
+    plaits_instance_t* inst = (plaits_instance_t*)instance;
+
+    if (strcmp(key, "engine") == 0) {
+        int v = atoi(val);
+        inst->engine = (v < 0) ? 0 : (v >= kNumEngines) ? kNumEngines - 1 : v;
+    } else if (strcmp(key, "harmonics") == 0) {
+        float v = (float)atof(val);
+        inst->harmonics = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+    } else if (strcmp(key, "timbre") == 0) {
+        float v = (float)atof(val);
+        inst->timbre = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+    } else if (strcmp(key, "morph") == 0) {
+        float v = (float)atof(val);
+        inst->morph = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+    } else if (strcmp(key, "decay") == 0) {
+        float v = (float)atof(val);
+        inst->decay = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+    } else if (strcmp(key, "lpg_colour") == 0) {
+        float v = (float)atof(val);
+        inst->lpg_colour = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+    } else if (strcmp(key, "fm_amount") == 0) {
+        float v = (float)atof(val);
+        inst->fm_amount = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+    } else if (strcmp(key, "timbre_mod") == 0) {
+        float v = (float)atof(val);
+        inst->timbre_mod = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+    } else if (strcmp(key, "morph_mod") == 0) {
+        float v = (float)atof(val);
+        inst->morph_mod = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+    } else if (strcmp(key, "output_mode") == 0) {
+        if (strcmp(val, "stereo") == 0)    inst->output_mode = OUTPUT_STEREO;
+        else if (strcmp(val, "aux") == 0)  inst->output_mode = OUTPUT_AUX;
+        else                               inst->output_mode = OUTPUT_MONO;
+    } else if (strcmp(key, "legato") == 0) {
+        inst->legato_mode = (strcmp(val, "on") == 0) ? LEGATO_ON : LEGATO_OFF;
+    } else if (strcmp(key, "velocity_sensitivity") == 0) {
+        float v = (float)atof(val);
+        inst->velocity_sensitivity = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+    } else if (strcmp(key, "octave_transpose") == 0) {
+        int v = atoi(val);
+        inst->octave_transpose = v < -3 ? -3 : v > 3 ? 3 : v;
+    } else if (strcmp(key, "volume") == 0) {
+        float v = (float)atof(val);
+        inst->volume = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// get_param  (stub)
+// get_param
 // ──────────────────────────────────────────────────────────────────────────
 
+static int get_single_param(const plaits_instance_t* inst, const char* key,
+                             char* buf, int buf_len) {
+    if (strcmp(key, "engine") == 0)
+        return snprintf(buf, buf_len, "%d", inst->engine);
+    if (strcmp(key, "harmonics") == 0)
+        return snprintf(buf, buf_len, "%.3f", inst->harmonics);
+    if (strcmp(key, "timbre") == 0)
+        return snprintf(buf, buf_len, "%.3f", inst->timbre);
+    if (strcmp(key, "morph") == 0)
+        return snprintf(buf, buf_len, "%.3f", inst->morph);
+    if (strcmp(key, "decay") == 0)
+        return snprintf(buf, buf_len, "%.3f", inst->decay);
+    if (strcmp(key, "lpg_colour") == 0)
+        return snprintf(buf, buf_len, "%.3f", inst->lpg_colour);
+    if (strcmp(key, "fm_amount") == 0)
+        return snprintf(buf, buf_len, "%.3f", inst->fm_amount);
+    if (strcmp(key, "timbre_mod") == 0)
+        return snprintf(buf, buf_len, "%.3f", inst->timbre_mod);
+    if (strcmp(key, "morph_mod") == 0)
+        return snprintf(buf, buf_len, "%.3f", inst->morph_mod);
+    if (strcmp(key, "output_mode") == 0) {
+        const char* mode = inst->output_mode == OUTPUT_STEREO ? "stereo"
+                         : inst->output_mode == OUTPUT_AUX    ? "aux"
+                         :                                       "mono";
+        return snprintf(buf, buf_len, "%s", mode);
+    }
+    if (strcmp(key, "legato") == 0)
+        return snprintf(buf, buf_len, "%s",
+                        inst->legato_mode == LEGATO_ON ? "on" : "off");
+    if (strcmp(key, "velocity_sensitivity") == 0)
+        return snprintf(buf, buf_len, "%.3f", inst->velocity_sensitivity);
+    if (strcmp(key, "octave_transpose") == 0)
+        return snprintf(buf, buf_len, "%d", inst->octave_transpose);
+    if (strcmp(key, "volume") == 0)
+        return snprintf(buf, buf_len, "%.3f", inst->volume);
+    return -1;
+}
+
 static int get_param(void* instance, const char* key, char* buf, int buf_len) {
-    (void)instance; (void)key; (void)buf; (void)buf_len;
+    const plaits_instance_t* inst = (const plaits_instance_t*)instance;
+
+    // Individual param read
+    int r = get_single_param(inst, key, buf, buf_len);
+    if (r >= 0) return r;
+
+    // ui_hierarchy — Shadow UI navigation structure
+    if (strcmp(key, "ui_hierarchy") == 0) {
+        const char* json =
+            "{"
+              "\"label\":\"Plaits\","
+              "\"levels\":{"
+                "\"root\":{"
+                  "\"label\":\"Plaits\","
+                  "\"knobs\":[\"engine\",\"harmonics\",\"timbre\",\"morph\","
+                              "\"decay\",\"lpg_colour\",\"fm_amount\",\"volume\"],"
+                  "\"params\":["
+                    "{\"key\":\"engine\",\"label\":\"Engine\"},"
+                    "{\"key\":\"harmonics\",\"label\":\"Harmonics\"},"
+                    "{\"key\":\"timbre\",\"label\":\"Timbre\"},"
+                    "{\"key\":\"morph\",\"label\":\"Morph\"},"
+                    "{\"key\":\"decay\",\"label\":\"Decay\"},"
+                    "{\"key\":\"lpg_colour\",\"label\":\"LPG Color\"},"
+                    "{\"key\":\"fm_amount\",\"label\":\"FM\"},"
+                    "{\"key\":\"timbre_mod\",\"label\":\"Timbre Mod\"},"
+                    "{\"key\":\"morph_mod\",\"label\":\"Morph Mod\"},"
+                    "{\"key\":\"output_mode\",\"label\":\"Output\"},"
+                    "{\"key\":\"legato\",\"label\":\"Legato\"},"
+                    "{\"key\":\"velocity_sensitivity\",\"label\":\"Vel Sens\"},"
+                    "{\"key\":\"octave_transpose\",\"label\":\"Octave\"},"
+                    "{\"key\":\"volume\",\"label\":\"Volume\"}"
+                  "]"
+                "}"
+              "}"
+            "}";
+        int len = (int)strlen(json);
+        if (len >= buf_len) return -1;
+        memcpy(buf, json, len + 1);
+        return len;
+    }
+
+    // chain_params — parameter metadata for Shadow UI knob editing
+    if (strcmp(key, "chain_params") == 0) {
+        const char* json =
+            "["
+              "{\"key\":\"engine\",\"name\":\"Engine\",\"type\":\"int\","
+               "\"min\":0,\"max\":23,\"default\":0},"
+              "{\"key\":\"harmonics\",\"name\":\"Harmonics\",\"type\":\"float\","
+               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
+              "{\"key\":\"timbre\",\"name\":\"Timbre\",\"type\":\"float\","
+               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
+              "{\"key\":\"morph\",\"name\":\"Morph\",\"type\":\"float\","
+               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
+              "{\"key\":\"decay\",\"name\":\"Decay\",\"type\":\"float\","
+               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
+              "{\"key\":\"lpg_colour\",\"name\":\"LPG Color\",\"type\":\"float\","
+               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
+              "{\"key\":\"fm_amount\",\"name\":\"FM\",\"type\":\"float\","
+               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
+              "{\"key\":\"timbre_mod\",\"name\":\"Timbre Mod\",\"type\":\"float\","
+               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
+              "{\"key\":\"morph_mod\",\"name\":\"Morph Mod\",\"type\":\"float\","
+               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
+              "{\"key\":\"output_mode\",\"name\":\"Output\",\"type\":\"enum\","
+               "\"options\":[\"mono\",\"stereo\",\"aux\"],\"default\":\"mono\"},"
+              "{\"key\":\"legato\",\"name\":\"Legato\",\"type\":\"enum\","
+               "\"options\":[\"off\",\"on\"],\"default\":\"off\"},"
+              "{\"key\":\"velocity_sensitivity\",\"name\":\"Vel Sens\","
+               "\"type\":\"float\",\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
+              "{\"key\":\"octave_transpose\",\"name\":\"Octave\",\"type\":\"int\","
+               "\"min\":-3,\"max\":3,\"default\":0},"
+              "{\"key\":\"volume\",\"name\":\"Volume\",\"type\":\"float\","
+               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.7}"
+            "]";
+        int len = (int)strlen(json);
+        if (len >= buf_len) return -1;
+        memcpy(buf, json, len + 1);
+        return len;
+    }
+
     return -1;
 }
 
