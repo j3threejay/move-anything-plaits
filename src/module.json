@@ -1,0 +1,168 @@
+{
+    "id": "plaits",
+    "name": "Plaits",
+    "abbrev": "PL",
+    "version": "0.1.0",
+    "description": "Macro oscillator with 24 synthesis engines, based on Mutable Instruments Plaits",
+    "author": "Emilie Gillet (port: charlesvestal)",
+    "license": "MIT",
+    "dsp": "dsp.so",
+    "api_version": 2,
+    "capabilities": {
+        "audio_out": true,
+        "audio_in": false,
+        "midi_in": true,
+        "midi_out": false,
+        "chainable": true,
+        "component_type": "sound_generator",
+        "ui_hierarchy": {
+            "levels": {
+                "root": {
+                    "label": "Plaits",
+                    "knobs": [
+                        "engine",
+                        "harmonics",
+                        "timbre",
+                        "morph",
+                        "decay",
+                        "lpg_colour",
+                        "fm_amount",
+                        "volume"
+                    ],
+                    "params": [
+                        {
+                            "key": "engine",
+                            "label": "Engine",
+                            "type": "int",
+                            "min": 0,
+                            "max": 23,
+                            "default": 0
+                        },
+                        {
+                            "key": "harmonics",
+                            "label": "Harmonics",
+                            "type": "float",
+                            "min": 0.0,
+                            "max": 1.0,
+                            "default": 0.5,
+                            "step": 0.02,
+                            "unit": "%"
+                        },
+                        {
+                            "key": "timbre",
+                            "label": "Timbre",
+                            "type": "float",
+                            "min": 0.0,
+                            "max": 1.0,
+                            "default": 0.5,
+                            "step": 0.02,
+                            "unit": "%"
+                        },
+                        {
+                            "key": "morph",
+                            "label": "Morph",
+                            "type": "float",
+                            "min": 0.0,
+                            "max": 1.0,
+                            "default": 0.5,
+                            "step": 0.02,
+                            "unit": "%"
+                        },
+                        {
+                            "key": "decay",
+                            "label": "Decay",
+                            "type": "float",
+                            "min": 0.0,
+                            "max": 1.0,
+                            "default": 0.5,
+                            "step": 0.02,
+                            "unit": "%"
+                        },
+                        {
+                            "key": "lpg_colour",
+                            "label": "LPG Color",
+                            "type": "float",
+                            "min": 0.0,
+                            "max": 1.0,
+                            "default": 0.5,
+                            "step": 0.02,
+                            "unit": "%"
+                        },
+                        {
+                            "key": "fm_amount",
+                            "label": "FM",
+                            "type": "float",
+                            "min": 0.0,
+                            "max": 1.0,
+                            "default": 0.0,
+                            "step": 0.02,
+                            "unit": "%"
+                        },
+                        {
+                            "key": "timbre_mod",
+                            "label": "Timbre Mod",
+                            "type": "float",
+                            "min": 0.0,
+                            "max": 1.0,
+                            "default": 0.0,
+                            "step": 0.02,
+                            "unit": "%"
+                        },
+                        {
+                            "key": "morph_mod",
+                            "label": "Morph Mod",
+                            "type": "float",
+                            "min": 0.0,
+                            "max": 1.0,
+                            "default": 0.0,
+                            "step": 0.02,
+                            "unit": "%"
+                        },
+                        {
+                            "key": "output_mode",
+                            "label": "Output",
+                            "type": "enum",
+                            "options": ["mono", "stereo", "aux"],
+                            "default": "mono"
+                        },
+                        {
+                            "key": "legato",
+                            "label": "Legato",
+                            "type": "enum",
+                            "options": ["off", "on"],
+                            "default": "off"
+                        },
+                        {
+                            "key": "velocity_sensitivity",
+                            "label": "Vel Sens",
+                            "type": "float",
+                            "min": 0.0,
+                            "max": 1.0,
+                            "default": 0.5,
+                            "step": 0.02,
+                            "unit": "%"
+                        },
+                        {
+                            "key": "octave_transpose",
+                            "label": "Octave",
+                            "type": "int",
+                            "min": -3,
+                            "max": 3,
+                            "default": 0
+                        },
+                        {
+                            "key": "volume",
+                            "label": "Volume",
+                            "type": "float",
+                            "min": 0.0,
+                            "max": 1.0,
+                            "default": 0.7,
+                            "step": 0.02,
+                            "unit": "%"
+                        }
+                    ]
+                }
+            }
+        }
+    }
+}
