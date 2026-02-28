@@ -120,11 +120,46 @@ static void destroy_instance(void* instance) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// on_midi  (stub)
+// on_midi
 // ──────────────────────────────────────────────────────────────────────────
 
 static void on_midi(void* instance, const uint8_t* msg, int len, int source) {
-    (void)instance; (void)msg; (void)len; (void)source;
+    (void)source;
+    if (len < 3) return;
+
+    plaits_instance_t* inst = (plaits_instance_t*)instance;
+    uint8_t status = msg[0] & 0xF0;
+    uint8_t note   = msg[1];
+    uint8_t vel    = msg[2];
+
+    if (status == 0x90 && vel > 0) {
+        // Note On
+        bool retrigger = true;
+        if (inst->legato_mode == LEGATO_ON && inst->note_active) {
+            // Legato: don't retrigger LPG when a note is already held
+            retrigger = false;
+        }
+        inst->current_note    = (int)note;
+        inst->velocity        = vel / 127.0f;
+        inst->note_active     = true;
+        inst->trigger_pending = retrigger;
+
+    } else if (status == 0x80 || (status == 0x90 && vel == 0)) {
+        // Note Off (0x80) or Note On with velocity 0 (treated as note off)
+        if (note == (uint8_t)inst->current_note) {
+            inst->note_active     = false;
+            inst->trigger_pending = false;
+        }
+
+    } else if (status == 0xB0) {
+        // Control Change
+        uint8_t cc  = msg[1];
+        if (cc == 123 || cc == 120) {
+            // All Notes Off (123) or All Sound Off (120)
+            inst->note_active     = false;
+            inst->trigger_pending = false;
+        }
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
