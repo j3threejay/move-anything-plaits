@@ -7,7 +7,6 @@ extern "C" {
 }
 
 #include "plaits/dsp/voice.h"
-#include "param_helper.h"
 
 #include <cstring>
 #include <cstdlib>
@@ -388,7 +387,9 @@ static int get_error(void* instance, char* buf, int buf_len) {
 // Pitch compensation: Plaits was designed for 48kHz hardware.
 // At 44100Hz the pitch is slightly flat (~1.47 semitones).
 // Compensate by adding semitones to the note value.
-static const float kPitchOffset = 12.0f * 0.12225f; // log2(48000/44100)*12 ≈ 1.47
+// Plaits uses kCorrectedSampleRate = 47872.34f (actual STM32 I2S clock).
+// At 44100Hz: log2(47872.34 / 44100) * 12 ≈ 1.421 semitones compensation.
+static const float kPitchOffset = 12.0f * log2f(47872.34f / 44100.0f);
 
 static void render_block(void* instance, int16_t* out_lr, int frames) {
     plaits_instance_t* inst = (plaits_instance_t*)instance;
@@ -427,14 +428,28 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
     }
 
     // ── Render ───────────────────────────────────────────────────────────
-    inst->voice.Render(inst->patch, inst->mods, inst->frame_buf, (size_t)frames);
+    {
+        // Plaits internal buffers are kMaxBlockSize=24 frames; must render in chunks
+        static const int kChunkSize = 24;
+        int remaining = frames;
+        int offset = 0;
+        while (remaining > 0) {
+            int chunk = remaining < kChunkSize ? remaining : kChunkSize;
+            inst->voice.Render(inst->patch, inst->mods,
+                               inst->frame_buf + offset, (size_t)chunk);
+            // Only trigger on the first chunk
+            inst->mods.trigger = 0.0f;
+            remaining -= chunk;
+            offset    += chunk;
+        }
+    }
 
     // ── Convert Frame output to int16 stereo with output routing ────────
     const float gain = inst->volume;
     for (int i = 0; i < frames; i++) {
         // Frame values are already int16 range (short)
-        float out_f = inst->frame_buf[i].out / 32767.0f;
-        float aux_f = inst->frame_buf[i].aux / 32767.0f;
+        float out_f = -inst->frame_buf[i].out / 32767.0f;
+        float aux_f = -inst->frame_buf[i].aux / 32767.0f;
 
         float l, r;
         switch (inst->output_mode) {
