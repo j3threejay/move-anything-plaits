@@ -195,7 +195,9 @@ static const char* kEngineNames[] = {
 };
 static const int kNumEngines = 24;
 
-// Per-engine labels for Harmonics (0), Timbre (1), Morph (2)
+// Per-engine labels for Harmonics (0), Timbre (1), Morph (2).
+// Strings are substituted directly into JSON in get_param("chain_params") —
+// must not contain JSON special characters (", \, control chars).
 static const char* kEngineLabels[24][3] = {
     {"Detune",     "Cutoff",      "Resonance" },  //  0 VA VCF
     {"Ratio",      "Phase",       "Distortion"},  //  1 Phase Dist
