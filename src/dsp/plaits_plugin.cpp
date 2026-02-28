@@ -195,6 +195,34 @@ static const char* kEngineNames[] = {
 };
 static const int kNumEngines = 24;
 
+// Per-engine labels for Harmonics (0), Timbre (1), Morph (2)
+static const char* kEngineLabels[24][3] = {
+    {"Detune",     "Cutoff",      "Resonance" },  //  0 VA VCF
+    {"Ratio",      "Phase",       "Distortion"},  //  1 Phase Dist
+    {"Ratio",      "Feedback",    "Level"     },  //  2 6-Op I
+    {"Ratio",      "Feedback",    "Level"     },  //  3 6-Op II
+    {"Ratio",      "Feedback",    "Level"     },  //  4 6-Op III
+    {"Terrain",    "X",           "Y"         },  //  5 Wave Terrain
+    {"Detune",     "Tone",        "Envelope"  },  //  6 Str Machine
+    {"Arpeggio",   "Duty",        "Filter"    },  //  7 Chiptune
+    {"Detune",     "Cutoff",      "Shape"     },  //  8 V. Analog
+    {"Overtone",   "Waveshape",   "Fold"      },  //  9 Waveshape
+    {"Ratio",      "Feedback",    "Topology"  },  // 10 FM
+    {"Position",   "Size",        "Density"   },  // 11 Grain
+    {"Bumps",      "Slope",       "Shift"     },  // 12 Additive
+    {"Bank",       "Pointer",     "Mirror"    },  // 13 Wavetable
+    {"Chord",      "Timbre",      "Waveform"  },  // 14 Chord
+    {"Prosody",    "Phoneme",     "Formant"   },  // 15 Speech
+    {"Detune",     "Spread",      "Chaos"     },  // 16 Swarm
+    {"Frequency",  "Slope",       "Ruggedness"},  // 17 Noise
+    {"Spread",     "Extinction",  "Scatter"   },  // 18 Particle
+    {"Harmonic",   "Timbre",      "Morph"     },  // 19 String
+    {"Harmonic",   "Timbre",      "Decay"     },  // 20 Modal
+    {"Frequency",  "Punch",       "Decay"     },  // 21 Bass Drum
+    {"Frequency",  "Tone",        "Decay"     },  // 22 Snare Drum
+    {"Frequency",  "Tone",        "Decay"     },  // 23 Hi-Hat
+};
+
 // ──────────────────────────────────────────────────────────────────────────
 // set_param
 // ──────────────────────────────────────────────────────────────────────────
