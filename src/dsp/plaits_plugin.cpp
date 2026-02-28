@@ -189,12 +189,82 @@ static int get_error(void* instance, char* buf, int buf_len) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// render_block  (stub - silence)
+// render_block
 // ──────────────────────────────────────────────────────────────────────────
 
+// Pitch compensation: Plaits was designed for 48kHz hardware.
+// At 44100Hz the pitch is slightly flat (~1.47 semitones).
+// Compensate by adding semitones to the note value.
+static const float kPitchOffset = 12.0f * 0.12225f; // log2(48000/44100)*12 ≈ 1.47
+
 static void render_block(void* instance, int16_t* out_lr, int frames) {
-    (void)instance;
-    memset(out_lr, 0, frames * 2 * sizeof(int16_t));
+    plaits_instance_t* inst = (plaits_instance_t*)instance;
+
+    // ── Build Patch ──────────────────────────────────────────────────────
+    inst->patch.engine   = inst->engine;
+    inst->patch.note     = (float)(inst->current_note + inst->octave_transpose * 12)
+                           + kPitchOffset;
+    inst->patch.harmonics = inst->harmonics;
+    inst->patch.timbre    = inst->timbre;
+    inst->patch.morph     = inst->morph;
+    inst->patch.decay     = inst->decay;
+    inst->patch.lpg_colour = inst->lpg_colour;
+    inst->patch.frequency_modulation_amount = inst->fm_amount;
+    inst->patch.timbre_modulation_amount    = inst->timbre_mod;
+    inst->patch.morph_modulation_amount     = inst->morph_mod;
+
+    // ── Build Modulations ────────────────────────────────────────────────
+    memset(&inst->mods, 0, sizeof(inst->mods));
+    inst->mods.trigger_patched = true;
+    inst->mods.level_patched   = true;
+
+    // Trigger: pulse for one render block after Note On
+    inst->mods.trigger    = inst->trigger_pending ? 1.0f : 0.0f;
+    inst->trigger_pending = false;
+
+    // Level: controls LPG amplitude (gate + velocity)
+    if (inst->note_active) {
+        // Scale level by velocity sensitivity:
+        // At vel_sens=0: always full level regardless of velocity
+        // At vel_sens=1: level is exactly the velocity value
+        float vs = inst->velocity_sensitivity;
+        inst->mods.level = inst->velocity * vs + (1.0f - vs);
+    } else {
+        inst->mods.level = 0.0f;  // Note off: LPG starts release
+    }
+
+    // ── Render ───────────────────────────────────────────────────────────
+    inst->voice.Render(inst->patch, inst->mods, inst->frame_buf, (size_t)frames);
+
+    // ── Convert Frame output to int16 stereo with output routing ────────
+    const float gain = inst->volume;
+    for (int i = 0; i < frames; i++) {
+        // Frame values are already int16 range (short)
+        float out_f = inst->frame_buf[i].out / 32767.0f;
+        float aux_f = inst->frame_buf[i].aux / 32767.0f;
+
+        float l, r;
+        switch (inst->output_mode) {
+            case OUTPUT_STEREO:
+                l = out_f;
+                r = aux_f;
+                break;
+            case OUTPUT_AUX:
+                l = r = aux_f;
+                break;
+            case OUTPUT_MONO:
+            default:
+                l = r = out_f;
+                break;
+        }
+
+        l *= gain;
+        r *= gain;
+
+        // Clamp and write
+        out_lr[i * 2]     = (int16_t)fmaxf(-32768.0f, fminf(32767.0f, l * 32767.0f));
+        out_lr[i * 2 + 1] = (int16_t)fmaxf(-32768.0f, fminf(32767.0f, r * 32767.0f));
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
