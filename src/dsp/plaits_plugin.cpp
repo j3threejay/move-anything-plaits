@@ -89,7 +89,7 @@ static void* create_instance(const char* module_dir, const char* json_defaults) 
 
     // Default parameter values
     inst->engine             = 0;
-    inst->previous_engine    = 0;
+    inst->previous_engine    = -1;  // sentinel: forces reset on first set_param("engine", ...)
     inst->harmonics          = 0.5f;
     inst->timbre             = 0.5f;
     inst->morph              = 0.5f;
@@ -266,6 +266,21 @@ static constexpr float kGainTable[24] = {
 // Called on engine switch. Does NOT change any plugin parameters.
 // Voice::Init re-registers all engines and resets post-processors, envelopes,
 // and internal state. Allocator must be re-initialized first (reuses same buffer).
+//
+// COST: Voice::Init calls engine->Init() on all 24 engines (virtual dispatch +
+// allocator re-walk). This is intentional — the only way to clear
+// aux_post_processor_, lpg_envelope_, and decay_envelope_ without modifying
+// vendor code. Engine switches are infrequent (user-initiated) so the cost
+// is acceptable. Do not call from a hot path.
+//
+// Also resets previous_engine_index_ to -1 inside voice.cc, ensuring the
+// next voice.Render() call sees a fresh engine selection and calls e->Reset()
+// and out_post_processor_.Reset() on the new engine.
+//
+// THREADING: Assumes set_param is not called concurrently with render_block.
+// The plugin_api_v2 contract does not document a threading model. If concurrent
+// delivery is ever required, move the reset_voice call into render_block behind
+// a reset_pending flag owned by the audio thread.
 // ──────────────────────────────────────────────────────────────────────────
 
 static void reset_voice(plaits_instance_t* inst) {
