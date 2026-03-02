@@ -508,11 +508,11 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
               "{\"key\":\"fm_amount\",\"name\":\"FM\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
+              "{\"key\":\"aux_mix\",\"name\":\"Mix\",\"type\":\"float\","
+               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
               "{\"key\":\"timbre_mod\",\"name\":\"Timbre Mod\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
               "{\"key\":\"morph_mod\",\"name\":\"Morph Mod\",\"type\":\"float\","
-               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
-              "{\"key\":\"aux_mix\",\"name\":\"Mix\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
               "{\"key\":\"legato\",\"name\":\"Legato\",\"type\":\"enum\","
                "\"options\":[\"off\",\"on\"],\"default\":\"off\"},"
@@ -611,6 +611,9 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
         float aux_f = -inst->frame_buf[i].aux / 32767.0f * eg;
 
         // Move is mono hardware: blend OUT and AUX, write same sample to both channels.
+        // Applies to all 24 engines including percussion (21-23).
+        // Percussion AUX carries a separate drum voice (e.g. open vs closed hi-hat).
+        // Blending is intentional — allows mixing the two drum voices via the Mix knob.
         const float blended = out_f * (1.0f - inst->aux_mix) + aux_f * inst->aux_mix;
         const float sample = blended * gain;
 
