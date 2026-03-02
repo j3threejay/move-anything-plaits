@@ -68,6 +68,7 @@ struct plaits_instance_t {
 
     // Engine switch tracking
     int  previous_engine;  // detects change in set_param to trigger voice reset
+    bool engine_visited[24]; // true after first visit; prevents re-applying defaults
 };
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -90,6 +91,9 @@ static void* create_instance(const char* module_dir, const char* json_defaults) 
     // Default parameter values
     inst->engine             = 0;
     inst->previous_engine    = -1;  // sentinel: forces reset on first set_param("engine", ...)
+    // Mark engine 0 as visited — defaults already applied above in create_instance
+    memset(inst->engine_visited, 0, sizeof(inst->engine_visited));
+    inst->engine_visited[0] = true;
     inst->harmonics          = 0.5f;
     inst->timbre             = 0.5f;
     inst->morph              = 0.5f;
@@ -262,6 +266,46 @@ static constexpr float kGainTable[24] = {
 };
 
 // ──────────────────────────────────────────────────────────────────────────
+// Per-engine default parameter values.
+// Applied ONCE when an engine is first visited in a session.
+// Subsequent visits restore last-used values — not re-applied.
+// Only covers: harmonics, timbre, morph, decay, lpg_colour.
+// fm_amount, timbre_mod, morph_mod, and aux_mix are NOT reset on engine switch.
+// ──────────────────────────────────────────────────────────────────────────
+
+struct EngineDefaults {
+    float harmonics, timbre, morph, decay, lpg_colour;
+};
+
+// Indexed by engine registration order from plaits/dsp/voice.cc Voice::Init().
+static constexpr EngineDefaults kEngineDefaults[24] = {
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  0  VA VCF
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  1  Phase Dist
+    { 0.5f, 0.5f, 0.5f, 0.7f, 0.5f },  //  2  6-Op I      (longer decay suits pads)
+    { 0.5f, 0.5f, 0.5f, 0.7f, 0.5f },  //  3  6-Op II
+    { 0.5f, 0.5f, 0.5f, 0.7f, 0.5f },  //  4  6-Op III
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  5  Wave Terr
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  6  Str Mach
+    { 0.5f, 0.5f, 0.0f, 0.5f, 0.5f },  //  7  Chiptune    (morph=0 prevents self-osc)
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  8  V. Analog
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  9  Waveshape
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 10  FM
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 11  Grain
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 12  Additive
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 13  Wavetable
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 14  Chord
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 15  Speech
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 16  Swarm
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 17  Noise
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 18  Particle
+    { 0.5f, 0.5f, 0.3f, 0.6f, 0.5f },  // 19  String      (lower morph, longer decay)
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 20  Modal
+    { 0.5f, 0.5f, 0.5f, 0.4f, 0.5f },  // 21  Bass Drum   (slightly shorter decay)
+    { 0.5f, 0.5f, 0.5f, 0.3f, 0.5f },  // 22  Snare Drum  (shorter decay)
+    { 0.5f, 0.5f, 0.5f, 0.3f, 0.5f },  // 23  Hi-Hat      (shorter decay)
+};
+
+// ──────────────────────────────────────────────────────────────────────────
 // reset_voice  —  reinitialize Plaits voice to clear all internal state.
 // Called on engine switch. Does NOT change any plugin parameters.
 // Voice::Init re-registers all engines and resets post-processors, envelopes,
@@ -307,6 +351,17 @@ static void set_param(void* instance, const char* key, const char* val) {
             inst->engine = new_engine;
             inst->previous_engine = new_engine;
             reset_voice(inst);
+            // Apply per-engine defaults on first visit only.
+            // Subsequent visits restore last-used values.
+            if (!inst->engine_visited[new_engine]) {
+                inst->engine_visited[new_engine] = true;
+                const EngineDefaults& d = kEngineDefaults[new_engine];
+                inst->harmonics  = d.harmonics;
+                inst->timbre     = d.timbre;
+                inst->morph      = d.morph;
+                inst->decay      = d.decay;
+                inst->lpg_colour = d.lpg_colour;
+            }
         }
     } else if (strcmp(key, "harmonics") == 0) {
         float v = (float)atof(val);
