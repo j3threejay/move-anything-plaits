@@ -28,6 +28,8 @@ static const int   BUFFER_SIZE  = 32768;  // 32KB for voice engine buffers
 static const int   LEGATO_OFF = 0;
 static const int   LEGATO_ON  = 1;
 
+static constexpr float kOutputVolume = 0.85f;  // internal output scalar, not user-exposed
+
 // ──────────────────────────────────────────────────────────────────────────
 // Instance struct
 // ──────────────────────────────────────────────────────────────────────────
@@ -60,7 +62,6 @@ struct plaits_instance_t {
     float aux_mix;
     float velocity_sensitivity;
     int   octave_transpose;
-    float volume;
 
     // Render frame buffer (plaits::Voice::Frame has interleaved short out/aux)
     plaits::Voice::Frame frame_buf[BLOCK_SIZE];
@@ -96,7 +97,6 @@ static void* create_instance(const char* module_dir, const char* json_defaults) 
     inst->aux_mix            = 0.0f;
     inst->velocity_sensitivity = 0.5f;
     inst->octave_transpose   = 0;
-    inst->volume             = 0.85f;
     inst->legato_mode        = LEGATO_OFF;
 
     // Note state
@@ -223,7 +223,13 @@ static const char* kEngineLabels[24][3] = {
 
 // Per-engine gain compensation table.
 // Indexed by engine registration order from plaits::Voice::Init() in voice.cc.
-// Corrects level imbalance between engine families.
+//
+// Applied AFTER Plaits' own ChannelPostProcessor, which already bakes each
+// engine's RegisterInstance gain into the Frame shorts. Do NOT attempt to
+// derive these values from RegisterInstance parameters — that gain is already
+// included in the short values written to frame_buf. These values are
+// empirically tuned against what the hardware I2S bus would produce, to
+// equalise perceived loudness across engine families.
 static constexpr float kGainTable[24] = {
     1.0f,  //  0 VA VCF       (VirtualAnalogVCFEngine)
     1.0f,  //  1 Phase Dist   (PhaseDistortionEngine)
@@ -241,11 +247,11 @@ static constexpr float kGainTable[24] = {
     1.2f,  // 13 Wavetable    (WavetableEngine)
     0.8f,  // 14 Chord        (ChordEngine)
     1.3f,  // 15 Speech       (SpeechEngine)
-    0.9f,  // 16 Swarm        (SwarmEngine)
-    1.2f,  // 17 Noise        (NoiseEngine)
-    1.2f,  // 18 Particle     (ParticleEngine)
-    1.0f,  // 19 String       (StringEngine)
-    1.0f,  // 20 Modal        (ModalEngine)
+    0.9f,   // 16  Swarm    (limiter path, RegisterInstance out_gain=-3.0)
+    1.2f,   // 17  Noise    (limiter path, RegisterInstance out_gain=-1.0)
+    1.2f,   // 18  Particle (limiter path, RegisterInstance out_gain=-2.0)
+    1.0f,   // 19  String   (limiter path, RegisterInstance out_gain=-1.0)
+    1.0f,   // 20  Modal    (limiter path, RegisterInstance out_gain=-1.0)
     1.0f,  // 21 Bass Drum    (BassDrumEngine)
     1.0f,  // 22 Snare Drum   (SnareDrumEngine)
     1.0f,  // 23 Hi-Hat       (HiHatEngine)
@@ -503,23 +509,21 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
     }
 
     // ── Convert Frame output to int16 stereo with output routing ────────
-    const float gain = inst->volume;
+    const float gain = kOutputVolume;
     const float eg = kGainTable[inst->engine];
     for (int i = 0; i < frames; i++) {
         // Frame values are already int16 range (short)
         float out_f = -inst->frame_buf[i].out / 32767.0f * eg;
         float aux_f = -inst->frame_buf[i].aux / 32767.0f * eg;
 
+        // Move is mono hardware: blend OUT and AUX, write same sample to both channels.
         float blended = out_f * (1.0f - inst->aux_mix) + aux_f * inst->aux_mix;
-        float l = blended;
-        float r = blended;
-
-        l *= gain;
-        r *= gain;
+        const float sample = blended * gain;
 
         // Clamp and write
-        out_lr[i * 2]     = (int16_t)fmaxf(-32768.0f, fminf(32767.0f, l * 32767.0f));
-        out_lr[i * 2 + 1] = (int16_t)fmaxf(-32768.0f, fminf(32767.0f, r * 32767.0f));
+        const int16_t s = (int16_t)fmaxf(-32768.0f, fminf(32767.0f, sample * 32767.0f));
+        out_lr[i * 2]     = s;
+        out_lr[i * 2 + 1] = s;
     }
 }
 
