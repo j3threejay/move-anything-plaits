@@ -247,11 +247,11 @@ static constexpr float kGainTable[24] = {
     1.2f,  // 13 Wavetable    (WavetableEngine)
     0.8f,  // 14 Chord        (ChordEngine)
     1.3f,  // 15 Speech       (SpeechEngine)
-    0.9f,   // 16  Swarm    (limiter path, RegisterInstance out_gain=-3.0)
-    1.2f,   // 17  Noise    (limiter path, RegisterInstance out_gain=-1.0)
-    1.2f,   // 18  Particle (limiter path, RegisterInstance out_gain=-2.0)
-    1.0f,   // 19  String   (limiter path, RegisterInstance out_gain=-1.0)
-    1.0f,   // 20  Modal    (limiter path, RegisterInstance out_gain=-1.0)
+    0.9f,   // 16  Swarm      (SwarmEngine,       limiter path)
+    1.2f,   // 17  Noise      (NoiseEngine,        limiter path)
+    1.2f,   // 18  Particle   (ParticleEngine,     limiter path)
+    1.0f,   // 19  String     (StringEngine,       limiter path)
+    1.0f,   // 20  Modal      (ModalEngine,        limiter path)
     1.0f,  // 21 Bass Drum    (BassDrumEngine)
     1.0f,  // 22 Snare Drum   (SnareDrumEngine)
     1.0f,  // 23 Hi-Hat       (HiHatEngine)
@@ -529,7 +529,7 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
         const float sample = blended * gain;
 
         // Clamp and write
-        const int16_t s = (int16_t)fmaxf(-32768.0f, fminf(32767.0f, sample * 32767.0f));
+        const int16_t s = (int16_t)fmaxf(-32768.0f, fminf(32767.0f, sample * 32767.0f));  // hard clip intentional
         out_lr[i * 2]     = s;
         out_lr[i * 2 + 1] = s;
     }
