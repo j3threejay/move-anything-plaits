@@ -516,16 +516,8 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
         float out_f = -inst->frame_buf[i].out / 32767.0f * eg;
         float aux_f = -inst->frame_buf[i].aux / 32767.0f * eg;
 
-        // Percussion engines (21-23) carry a separate drum voice on AUX.
-        // Always output OUT only — aux_mix is not meaningful for these engines.
-        const bool is_percussion = (inst->engine >= 21);
-        float blended;
-        if (is_percussion) {
-            blended = out_f;
-        } else {
-            // Move is mono hardware: blend OUT and AUX, write same sample to both channels.
-            blended = out_f * (1.0f - inst->aux_mix) + aux_f * inst->aux_mix;
-        }
+        // Move is mono hardware: blend OUT and AUX, write same sample to both channels.
+        const float blended = out_f * (1.0f - inst->aux_mix) + aux_f * inst->aux_mix;
         const float sample = blended * gain;
 
         // Clamp and write
