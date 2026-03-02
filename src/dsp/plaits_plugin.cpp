@@ -42,10 +42,9 @@ namespace {
 struct EngineDefaults {
     float harmonics, timbre, morph, decay, lpg_colour;
 };
-} // namespace
 
 // Indexed by engine registration order from plaits/dsp/voice.cc Voice::Init().
-static constexpr EngineDefaults kEngineDefaults[24] = {
+constexpr EngineDefaults kEngineDefaults[24] = {
     { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  0  VA VCF
     { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  1  Phase Dist
     { 0.5f, 0.5f, 0.5f, 0.7f, 0.5f },  //  2  6-Op I      (longer decay suits pads)
@@ -71,6 +70,7 @@ static constexpr EngineDefaults kEngineDefaults[24] = {
     { 0.5f, 0.5f, 0.5f, 0.3f, 0.5f },  // 22  Snare Drum  (shorter decay)
     { 0.5f, 0.5f, 0.5f, 0.3f, 0.5f },  // 23  Hi-Hat      (shorter decay)
 };
+} // namespace
 
 // ──────────────────────────────────────────────────────────────────────────
 // Instance struct
