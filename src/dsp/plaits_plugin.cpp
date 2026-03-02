@@ -65,6 +65,9 @@ struct plaits_instance_t {
 
     // Render frame buffer (plaits::Voice::Frame has interleaved short out/aux)
     plaits::Voice::Frame frame_buf[BLOCK_SIZE];
+
+    // Engine switch tracking
+    int  previous_engine;  // detects change in set_param to trigger voice reset
 };
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -86,6 +89,7 @@ static void* create_instance(const char* module_dir, const char* json_defaults) 
 
     // Default parameter values
     inst->engine             = 0;
+    inst->previous_engine    = 0;
     inst->harmonics          = 0.5f;
     inst->timbre             = 0.5f;
     inst->morph              = 0.5f;
@@ -258,6 +262,18 @@ static constexpr float kGainTable[24] = {
 };
 
 // ──────────────────────────────────────────────────────────────────────────
+// reset_voice  —  reinitialize Plaits voice to clear all internal state.
+// Called on engine switch. Does NOT change any plugin parameters.
+// Voice::Init re-registers all engines and resets post-processors, envelopes,
+// and internal state. Allocator must be re-initialized first (reuses same buffer).
+// ──────────────────────────────────────────────────────────────────────────
+
+static void reset_voice(plaits_instance_t* inst) {
+    inst->allocator.Init(inst->shared_buffer, BUFFER_SIZE);
+    inst->voice.Init(&inst->allocator);
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // set_param
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -271,7 +287,12 @@ static void set_param(void* instance, const char* key, const char* val) {
             if (strcmp(val, kEngineNames[i]) == 0) { v = i; break; }
         }
         if (v < 0) v = atoi(val);  // fallback: numeric string
-        inst->engine = (v < 0) ? 0 : (v >= kNumEngines) ? kNumEngines - 1 : v;
+        int new_engine = (v < 0) ? 0 : (v >= kNumEngines) ? kNumEngines - 1 : v;
+        if (new_engine != inst->previous_engine) {
+            inst->engine = new_engine;
+            inst->previous_engine = new_engine;
+            reset_voice(inst);
+        }
     } else if (strcmp(key, "harmonics") == 0) {
         float v = (float)atof(val);
         inst->harmonics = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
