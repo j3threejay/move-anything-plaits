@@ -225,6 +225,36 @@ static const char* kEngineLabels[24][3] = {
     {"Frequency",  "Tone",        "Decay"     },  // 23 Hi-Hat
 };
 
+// Per-engine gain compensation table.
+// Indexed by engine registration order from plaits::Voice::Init() in voice.cc.
+// Corrects level imbalance between engine families.
+static constexpr float kGainTable[24] = {
+    1.0f,  //  0 VA VCF       (VirtualAnalogVCFEngine)
+    1.0f,  //  1 Phase Dist   (PhaseDistortionEngine)
+    2.8f,  //  2 6-Op I       (SixOpEngine)
+    2.8f,  //  3 6-Op II      (SixOpEngine)
+    2.8f,  //  4 6-Op III     (SixOpEngine)
+    1.8f,  //  5 Wave Terr    (WaveTerrainEngine)
+    1.5f,  //  6 Str Mach     (StringMachineEngine)
+    1.2f,  //  7 Chiptune     (ChiptuneEngine)
+    1.0f,  //  8 V. Analog    (VirtualAnalogEngine)
+    1.0f,  //  9 Waveshape    (WaveshapingEngine)
+    2.5f,  // 10 FM           (FMEngine, two-op)
+    1.1f,  // 11 Grain        (GrainEngine)
+    1.0f,  // 12 Additive     (AdditiveEngine)
+    1.2f,  // 13 Wavetable    (WavetableEngine)
+    0.8f,  // 14 Chord        (ChordEngine)
+    1.3f,  // 15 Speech       (SpeechEngine)
+    0.9f,  // 16 Swarm        (SwarmEngine)
+    1.2f,  // 17 Noise        (NoiseEngine)
+    1.2f,  // 18 Particle     (ParticleEngine)
+    1.0f,  // 19 String       (StringEngine)
+    1.0f,  // 20 Modal        (ModalEngine)
+    1.0f,  // 21 Bass Drum    (BassDrumEngine)
+    1.0f,  // 22 Snare Drum   (SnareDrumEngine)
+    1.0f,  // 23 Hi-Hat       (HiHatEngine)
+};
+
 // ──────────────────────────────────────────────────────────────────────────
 // set_param
 // ──────────────────────────────────────────────────────────────────────────
@@ -491,10 +521,11 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
 
     // ── Convert Frame output to int16 stereo with output routing ────────
     const float gain = inst->volume;
+    const float eg = kGainTable[inst->engine];
     for (int i = 0; i < frames; i++) {
         // Frame values are already int16 range (short)
-        float out_f = -inst->frame_buf[i].out / 32767.0f;
-        float aux_f = -inst->frame_buf[i].aux / 32767.0f;
+        float out_f = -inst->frame_buf[i].out / 32767.0f * eg;
+        float aux_f = -inst->frame_buf[i].aux / 32767.0f * eg;
 
         float l, r;
         switch (inst->output_mode) {
