@@ -25,10 +25,6 @@ using std::max;
 static const int   BLOCK_SIZE   = 128;
 static const int   BUFFER_SIZE  = 32768;  // 32KB for voice engine buffers
 
-static const int   OUTPUT_MONO   = 0;
-static const int   OUTPUT_STEREO = 1;
-static const int   OUTPUT_AUX    = 2;
-
 static const int   LEGATO_OFF = 0;
 static const int   LEGATO_ON  = 1;
 
@@ -61,7 +57,7 @@ struct plaits_instance_t {
     float fm_amount;
     float timbre_mod;
     float morph_mod;
-    int   output_mode;
+    float aux_mix;
     float velocity_sensitivity;
     int   octave_transpose;
     float volume;
@@ -97,10 +93,10 @@ static void* create_instance(const char* module_dir, const char* json_defaults) 
     inst->fm_amount          = 0.0f;
     inst->timbre_mod         = 0.0f;
     inst->morph_mod          = 0.0f;
-    inst->output_mode        = OUTPUT_MONO;
+    inst->aux_mix            = 0.0f;
     inst->velocity_sensitivity = 0.5f;
     inst->octave_transpose   = 0;
-    inst->volume             = 0.7f;
+    inst->volume             = 0.85f;
     inst->legato_mode        = LEGATO_OFF;
 
     // Note state
@@ -294,10 +290,9 @@ static void set_param(void* instance, const char* key, const char* val) {
     } else if (strcmp(key, "morph_mod") == 0) {
         float v = (float)atof(val);
         inst->morph_mod = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
-    } else if (strcmp(key, "output_mode") == 0) {
-        if (strcmp(val, "stereo") == 0)    inst->output_mode = OUTPUT_STEREO;
-        else if (strcmp(val, "aux") == 0)  inst->output_mode = OUTPUT_AUX;
-        else                               inst->output_mode = OUTPUT_MONO;
+    } else if (strcmp(key, "aux_mix") == 0) {
+        float v = (float)atof(val);
+        inst->aux_mix = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
     } else if (strcmp(key, "legato") == 0) {
         inst->legato_mode = (strcmp(val, "on") == 0) ? LEGATO_ON : LEGATO_OFF;
     } else if (strcmp(key, "velocity_sensitivity") == 0) {
@@ -306,9 +301,6 @@ static void set_param(void* instance, const char* key, const char* val) {
     } else if (strcmp(key, "octave_transpose") == 0) {
         int v = atoi(val);
         inst->octave_transpose = v < -3 ? -3 : v > 3 ? 3 : v;
-    } else if (strcmp(key, "volume") == 0) {
-        float v = (float)atof(val);
-        inst->volume = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
     }
 }
 
@@ -336,12 +328,8 @@ static int get_single_param(const plaits_instance_t* inst, const char* key,
         return snprintf(buf, buf_len, "%.3f", inst->timbre_mod);
     if (strcmp(key, "morph_mod") == 0)
         return snprintf(buf, buf_len, "%.3f", inst->morph_mod);
-    if (strcmp(key, "output_mode") == 0) {
-        const char* mode = inst->output_mode == OUTPUT_STEREO ? "stereo"
-                         : inst->output_mode == OUTPUT_AUX    ? "aux"
-                         :                                       "mono";
-        return snprintf(buf, buf_len, "%s", mode);
-    }
+    if (strcmp(key, "aux_mix") == 0)
+        return snprintf(buf, buf_len, "%.3f", inst->aux_mix);
     if (strcmp(key, "legato") == 0)
         return snprintf(buf, buf_len, "%s",
                         inst->legato_mode == LEGATO_ON ? "on" : "off");
@@ -349,8 +337,6 @@ static int get_single_param(const plaits_instance_t* inst, const char* key,
         return snprintf(buf, buf_len, "%.3f", inst->velocity_sensitivity);
     if (strcmp(key, "octave_transpose") == 0)
         return snprintf(buf, buf_len, "%d", inst->octave_transpose);
-    if (strcmp(key, "volume") == 0)
-        return snprintf(buf, buf_len, "%.3f", inst->volume);
     return -1;
 }
 
@@ -370,7 +356,7 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                 "\"root\":{"
                   "\"label\":\"Plaits\","
                   "\"knobs\":[\"engine\",\"harmonics\",\"timbre\",\"morph\","
-                              "\"decay\",\"lpg_colour\",\"fm_amount\",\"volume\"],"
+                              "\"decay\",\"lpg_colour\",\"fm_amount\",\"aux_mix\"],"
                   "\"params\":["
                     "{\"key\":\"engine\",\"label\":\"Engine\",\"type\":\"enum\"},"
                     "{\"key\":\"harmonics\",\"label\":\"Harmonics\"},"
@@ -381,11 +367,10 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                     "{\"key\":\"fm_amount\",\"label\":\"FM\"},"
                     "{\"key\":\"timbre_mod\",\"label\":\"Timbre Mod\"},"
                     "{\"key\":\"morph_mod\",\"label\":\"Morph Mod\"},"
-                    "{\"key\":\"output_mode\",\"label\":\"Output\"},"
+                    "{\"key\":\"aux_mix\",\"label\":\"Mix\"},"
                     "{\"key\":\"legato\",\"label\":\"Legato\"},"
                     "{\"key\":\"velocity_sensitivity\",\"label\":\"Vel Sens\"},"
-                    "{\"key\":\"octave_transpose\",\"label\":\"Octave\"},"
-                    "{\"key\":\"volume\",\"label\":\"Volume\"}"
+                    "{\"key\":\"octave_transpose\",\"label\":\"Octave\"}"
                   "]"
                 "}"
               "}"
@@ -427,16 +412,14 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
               "{\"key\":\"morph_mod\",\"name\":\"Morph Mod\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
-              "{\"key\":\"output_mode\",\"name\":\"Output\",\"type\":\"enum\","
-               "\"options\":[\"mono\",\"stereo\",\"aux\"],\"default\":\"mono\"},"
+              "{\"key\":\"aux_mix\",\"name\":\"Mix\",\"type\":\"float\","
+               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
               "{\"key\":\"legato\",\"name\":\"Legato\",\"type\":\"enum\","
                "\"options\":[\"off\",\"on\"],\"default\":\"off\"},"
               "{\"key\":\"velocity_sensitivity\",\"name\":\"Vel Sens\","
                "\"type\":\"float\",\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
               "{\"key\":\"octave_transpose\",\"name\":\"Octave\",\"type\":\"int\","
-               "\"min\":-3,\"max\":3,\"default\":0},"
-              "{\"key\":\"volume\",\"name\":\"Volume\",\"type\":\"float\","
-               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.7}"
+               "\"min\":-3,\"max\":3,\"default\":0}"
             "]",
             h, t, m);
         if (len < 0 || len >= buf_len) return -1;
@@ -527,20 +510,9 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
         float out_f = -inst->frame_buf[i].out / 32767.0f * eg;
         float aux_f = -inst->frame_buf[i].aux / 32767.0f * eg;
 
-        float l, r;
-        switch (inst->output_mode) {
-            case OUTPUT_STEREO:
-                l = out_f;
-                r = aux_f;
-                break;
-            case OUTPUT_AUX:
-                l = r = aux_f;
-                break;
-            case OUTPUT_MONO:
-            default:
-                l = r = out_f;
-                break;
-        }
+        float blended = out_f * (1.0f - inst->aux_mix) + aux_f * inst->aux_mix;
+        float l = blended;
+        float r = blended;
 
         l *= gain;
         r *= gain;
