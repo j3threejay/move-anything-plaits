@@ -296,9 +296,9 @@ static const int kNumEngines = 24;
 static const char* kEngineLabels[24][3] = {
     {"Detune",     "Cutoff",      "Resonance" },  //  0 VA VCF
     {"Ratio",      "Phase",       "Distortion"},  //  1 Phase Dist
-    {"Preset",     "Brightness",  "Envelope"  },  //  2 6-Op I
-    {"Preset",     "Brightness",  "Envelope"  },  //  3 6-Op II
-    {"Preset",     "Brightness",  "Envelope"  },  //  4 6-Op III
+    {"---",        "Brightness",  "Envelope"  },  //  2 6-Op I  (harmonics overridden by fm_preset)
+    {"---",        "Brightness",  "Envelope"  },  //  3 6-Op II (harmonics overridden by fm_preset)
+    {"---",        "Brightness",  "Envelope"  },  //  4 6-Op III(harmonics overridden by fm_preset)
     {"Terrain",    "X",           "Y"         },  //  5 Wave Terrain
     {"Detune",     "Tone",        "Envelope"  },  //  6 Str Machine
     {"Arpeggio",   "Duty",        "Filter"    },  //  7 Chiptune
@@ -452,8 +452,28 @@ static void set_param(void* instance, const char* key, const char* val) {
         float v = (float)atof(val);
         inst->lpg_colour = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
     } else if (strcmp(key, "fm_amount") == 0) {
-        float v = (float)atof(val);
-        inst->fm_amount = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+        // For 6-Op engines, fm_amount knob is remapped to fm_preset selector.
+        // chain_params declares this as enum for 6-Op, float for others.
+        if (inst->engine >= 2 && inst->engine <= 4) {
+            int bank = inst->engine - 2;
+            int v = -1;
+            for (int i = 0; i < kNumFmPresets; i++) {
+                if (strcmp(val, kFmPresetNames[bank][i]) == 0) { v = i; break; }
+            }
+            if (v < 0) {
+                float fv = (float)atof(val);
+                if (fv > 0.0f && fv <= 1.0f) {
+                    v = (int)(fv * kNumFmPresets);
+                    if (v >= kNumFmPresets) v = kNumFmPresets - 1;
+                } else {
+                    v = atoi(val);
+                }
+            }
+            inst->fm_preset = v < 0 ? 0 : v >= kNumFmPresets ? kNumFmPresets - 1 : v;
+        } else {
+            float v = (float)atof(val);
+            inst->fm_amount = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+        }
     } else if (strcmp(key, "timbre_mod") == 0) {
         float v = (float)atof(val);
         inst->timbre_mod = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
@@ -472,7 +492,7 @@ static void set_param(void* instance, const char* key, const char* val) {
         int v = atoi(val);
         inst->octave_transpose = v < -3 ? -3 : v > 3 ? 3 : v;
     } else if (strcmp(key, "fm_preset") == 0) {
-        // Accept preset name string or numeric index
+        // Accept preset name string, numeric index, or 0.0-1.0 float from knob
         int e = inst->engine;
         if (e >= 2 && e <= 4) {
             int bank = e - 2;
@@ -480,7 +500,16 @@ static void set_param(void* instance, const char* key, const char* val) {
             for (int i = 0; i < kNumFmPresets; i++) {
                 if (strcmp(val, kFmPresetNames[bank][i]) == 0) { v = i; break; }
             }
-            if (v < 0) v = atoi(val);
+            if (v < 0) {
+                // Try float: host may send 0.0-1.0 for knob-mapped enum
+                float fv = (float)atof(val);
+                if (fv > 0.0f && fv <= 1.0f) {
+                    v = (int)(fv * kNumFmPresets);
+                    if (v >= kNumFmPresets) v = kNumFmPresets - 1;
+                } else {
+                    v = atoi(val);
+                }
+            }
             inst->fm_preset = v < 0 ? 0 : v >= kNumFmPresets ? kNumFmPresets - 1 : v;
         }
     }
@@ -504,8 +533,14 @@ static int get_single_param(const plaits_instance_t* inst, const char* key,
         return snprintf(buf, buf_len, "%.3f", inst->decay);
     if (strcmp(key, "lpg_colour") == 0)
         return snprintf(buf, buf_len, "%.3f", inst->lpg_colour);
-    if (strcmp(key, "fm_amount") == 0)
+    if (strcmp(key, "fm_amount") == 0) {
+        // For 6-Op engines, fm_amount is remapped to fm_preset selector
+        if (inst->engine >= 2 && inst->engine <= 4) {
+            const char* name = kFmPresetNames[inst->engine - 2][inst->fm_preset];
+            return snprintf(buf, buf_len, "%s", name);
+        }
         return snprintf(buf, buf_len, "%.3f", inst->fm_amount);
+    }
     if (strcmp(key, "timbre_mod") == 0)
         return snprintf(buf, buf_len, "%.3f", inst->timbre_mod);
     if (strcmp(key, "morph_mod") == 0)
@@ -536,7 +571,7 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
     int r = get_single_param(inst, key, buf, buf_len);
     if (r >= 0) return r;
 
-    // ui_hierarchy — Shadow UI navigation structure
+    // ui_hierarchy — Shadow UI navigation structure (static; host caches at load)
     if (strcmp(key, "ui_hierarchy") == 0) {
         const char* json =
             "{"
@@ -579,9 +614,14 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
         const char* t = kEngineLabels[inst->engine][1];
         const char* m = kEngineLabels[inst->engine][2];
 
-        // Build fm_preset option string for 6-Op engines
+        bool is_6op = (inst->engine >= 2 && inst->engine <= 4);
+
+        // Build fm_preset option string for 6-Op engines (menu access)
         char fm_preset_entry[2048] = "";
-        if (inst->engine >= 2 && inst->engine <= 4) {
+        // Build fm_amount entry: enum preset selector for 6-Op, float for others.
+        // The host re-reads chain_params on engine change (refreshes_labels).
+        char fm_amount_entry[2048];
+        if (is_6op) {
             int bank = inst->engine - 2;
             char options_buf[1600];
             int pos = 0;
@@ -590,10 +630,20 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                 pos += snprintf(options_buf + pos, sizeof(options_buf) - pos,
                                 "\"%s\"", kFmPresetNames[bank][i]);
             }
+            // fm_preset in menu (separate key for jog-wheel access)
             snprintf(fm_preset_entry, sizeof(fm_preset_entry),
                 "{\"key\":\"fm_preset\",\"name\":\"FM Preset\",\"type\":\"enum\","
                  "\"options\":[%s],\"default\":\"%s\"},",
                 options_buf, kFmPresetNames[bank][0]);
+            // fm_amount remapped to preset enum on knob 7
+            snprintf(fm_amount_entry, sizeof(fm_amount_entry),
+                "{\"key\":\"fm_amount\",\"name\":\"FM Preset\",\"type\":\"enum\","
+                 "\"options\":[%s],\"default\":\"%s\"}",
+                options_buf, kFmPresetNames[bank][0]);
+        } else {
+            snprintf(fm_amount_entry, sizeof(fm_amount_entry),
+                "{\"key\":\"fm_amount\",\"name\":\"FM\",\"type\":\"float\","
+                 "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0}");
         }
 
         int len = snprintf(buf, buf_len,
@@ -616,8 +666,7 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
               "{\"key\":\"lpg_colour\",\"name\":\"LPG Color\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
-              "{\"key\":\"fm_amount\",\"name\":\"FM\",\"type\":\"float\","
-               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
+              "%s,"
               "{\"key\":\"aux_mix\",\"name\":\"Mix\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
               "{\"key\":\"timbre_mod\",\"name\":\"Timbre Mod\",\"type\":\"float\","
@@ -631,7 +680,7 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
               "{\"key\":\"octave_transpose\",\"name\":\"Octave\",\"type\":\"int\","
                "\"min\":-3,\"max\":3,\"default\":0}"
             "]",
-            fm_preset_entry, h, t, m);
+            fm_preset_entry, h, t, m, fm_amount_entry);
         if (len < 0 || len >= buf_len) return -1;
         return len;
     }
@@ -666,14 +715,7 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
     inst->patch.engine   = inst->engine;
     inst->patch.note     = (float)(inst->current_note + inst->octave_transpose * 12)
                            + kPitchOffset;
-    // For 6-Op FM engines (2-4), override harmonics to select the fm_preset.
-    // SixOpEngine::Render quantizes (harmonics * 1.02) into 0-31 via
-    // HysteresisQuantizer2(32). Map preset index to center of each bin.
-    if (inst->engine >= 2 && inst->engine <= 4) {
-        inst->patch.harmonics = ((float)inst->fm_preset + 0.5f) / 32.0f;
-    } else {
-        inst->patch.harmonics = inst->harmonics;
-    }
+    inst->patch.harmonics = inst->harmonics;
     inst->patch.timbre    = inst->timbre;
     inst->patch.morph     = inst->morph;
     inst->patch.decay     = inst->decay;
@@ -681,6 +723,14 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
     inst->patch.frequency_modulation_amount = inst->fm_amount;
     inst->patch.timbre_modulation_amount    = inst->timbre_mod;
     inst->patch.morph_modulation_amount     = inst->morph_mod;
+
+    // For 6-Op FM engines (2-4), override harmonics LAST to select fm_preset.
+    // This must happen after all knob values are applied to patch.
+    // SixOpEngine::Render quantizes (harmonics * 1.02) into 0-31 via
+    // HysteresisQuantizer2(32). Map preset index to center of each bin.
+    if (inst->engine >= 2 && inst->engine <= 4) {
+        inst->patch.harmonics = ((float)inst->fm_preset + 0.5f) / 32.0f;
+    }
 
     // ── Build Modulations ────────────────────────────────────────────────
     memset(&inst->mods, 0, sizeof(inst->mods));
