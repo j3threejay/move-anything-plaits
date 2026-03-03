@@ -80,35 +80,36 @@ static const char* kFmPresetNames[3][32] = {
 
 namespace {
 struct EngineDefaults {
-    float harmonics, timbre, morph, decay, lpg_colour;
+    float harmonics, timbre, morph, decay, lpg_colour, velocity_sensitivity;
 };
 
 // Indexed by engine registration order from plaits/dsp/voice.cc Voice::Init().
 constexpr EngineDefaults kEngineDefaults[24] = {
-    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  0  VA VCF
-    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  1  Phase Dist
-    { 0.5f, 0.5f, 0.5f, 0.7f, 0.5f },  //  2  6-Op I      (longer decay suits pads)
-    { 0.5f, 0.5f, 0.5f, 0.7f, 0.5f },  //  3  6-Op II
-    { 0.5f, 0.5f, 0.5f, 0.7f, 0.5f },  //  4  6-Op III
-    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  5  Wave Terr
-    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  6  Str Mach
-    { 0.5f, 0.5f, 0.0f, 0.5f, 0.5f },  //  7  Chiptune    (morph=0 prevents self-osc)
-    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  8  V. Analog
-    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  9  Waveshape
-    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 10  FM
-    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 11  Grain
-    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 12  Additive
-    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 13  Wavetable
-    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 14  Chord
-    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 15  Speech
-    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 16  Swarm
-    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 17  Noise
-    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 18  Particle
-    { 0.5f, 0.5f, 0.3f, 0.6f, 0.5f },  // 19  String      (lower morph, longer decay)
-    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 20  Modal
-    { 0.5f, 0.5f, 0.5f, 0.4f, 0.5f },  // 21  Bass Drum   (slightly shorter decay)
-    { 0.5f, 0.5f, 0.5f, 0.3f, 0.5f },  // 22  Snare Drum  (shorter decay)
-    { 0.5f, 0.5f, 0.5f, 0.3f, 0.5f },  // 23  Hi-Hat      (shorter decay)
+    //   harm   tim    mor    dec    lpg    vel_s
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  0  VA VCF
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  1  Phase Dist
+    { 0.5f, 0.5f, 0.5f, 0.7f, 0.5f, 0.0f },  //  2  6-Op I      (vel_sens=0: full level)
+    { 0.5f, 0.5f, 0.5f, 0.7f, 0.5f, 0.0f },  //  3  6-Op II     (vel_sens=0: full level)
+    { 0.5f, 0.5f, 0.5f, 0.7f, 0.5f, 0.0f },  //  4  6-Op III    (vel_sens=0: full level)
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  5  Wave Terr
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  6  Str Mach
+    { 0.5f, 0.5f, 0.0f, 0.5f, 0.5f, 0.5f },  //  7  Chiptune    (morph=0 prevents self-osc)
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  8  V. Analog
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  //  9  Waveshape
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 10  FM
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 11  Grain
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 12  Additive
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 13  Wavetable
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 14  Chord
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 15  Speech
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 16  Swarm
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 17  Noise
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 18  Particle
+    { 0.5f, 0.5f, 0.3f, 0.6f, 0.5f, 0.5f },  // 19  String      (lower morph, longer decay)
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },  // 20  Modal
+    { 0.5f, 0.5f, 0.5f, 0.4f, 0.5f, 0.5f },  // 21  Bass Drum   (slightly shorter decay)
+    { 0.5f, 0.5f, 0.5f, 0.3f, 0.5f, 0.5f },  // 22  Snare Drum  (shorter decay)
+    { 0.5f, 0.5f, 0.5f, 0.3f, 0.5f, 0.5f },  // 23  Hi-Hat      (shorter decay)
 };
 } // namespace
 
@@ -434,6 +435,7 @@ static void set_param(void* instance, const char* key, const char* val) {
                 inst->morph      = d.morph;
                 inst->decay      = d.decay;
                 inst->lpg_colour = d.lpg_colour;
+                inst->velocity_sensitivity = d.velocity_sensitivity;
             }
         }
     } else if (strcmp(key, "harmonics") == 0) {
@@ -585,34 +587,20 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
         const char* m = kEngineLabels[inst->engine][2];
 
         bool is_6op = (inst->engine >= 2 && inst->engine <= 4);
-        // 6-Op engines: LPG bypassed (already_enveloped=true), fm_amount and
-        // aux_mix not useful. Label inactive knobs "---" so user knows.
-        // Decay remains active — Voice::Render's decay_envelope still modulates
-        // pitch and timbre even with LPG bypassed.
-        const char* decay_name = "Decay";
+        // 6-Op engines: LPG bypassed (already_enveloped=true). DX7 patches
+        // have their own operator envelopes. Decay, LPG Color, FM, and Mix
+        // knobs are non-functional — label "---" so user knows.
+        const char* decay_name = is_6op ? "---" : "Decay";
         const char* lpg_name   = is_6op ? "---" : "LPG Color";
         const char* aux_name   = is_6op ? "---" : "Mix";
 
-        // Build fm_preset option string for 6-Op engines (menu access)
-        char fm_preset_entry[2048] = "";
-        if (is_6op) {
-            int bank = inst->engine - 2;
-            char options_buf[1600];
-            int pos = 0;
-            for (int i = 0; i < kNumFmPresets; i++) {
-                if (i > 0) pos += snprintf(options_buf + pos, sizeof(options_buf) - pos, ",");
-                pos += snprintf(options_buf + pos, sizeof(options_buf) - pos,
-                                "\"%s\"", kFmPresetNames[bank][i]);
-            }
-            snprintf(fm_preset_entry, sizeof(fm_preset_entry),
-                "{\"key\":\"fm_preset\",\"name\":\"FM Preset\",\"type\":\"enum\","
-                 "\"options\":[%s],\"default\":\"%s\"},",
-                options_buf, kFmPresetNames[bank][0]);
-        }
+        // fm_preset menu entry removed from chain_params to avoid buffer
+        // overflow (~550 bytes of preset names pushed 6-Op JSON past host's
+        // buf_len, causing labels to not update). Preset selection is on
+        // knob 2 (harmonics). fm_preset remains accessible via ui_hierarchy.
 
-        // fm_amount: stays float for all engines (host caches type from module.json).
-        // For 6-Op, label as "Preset" — knob sweeps through 32 DX7 patches.
-        // For others, label as "FM" — controls frequency modulation depth.
+        // fm_amount: inactive for 6-Op (preset selection moved to harmonics knob).
+        // For other engines, controls frequency modulation depth.
         const char* fm_name = is_6op ? "---" : "FM";
 
         int len = snprintf(buf, buf_len,
@@ -624,7 +612,6 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                "\"Swarm\",\"Noise\",\"Particle\",\"String\",\"Modal\","
                "\"Bass Drum\",\"Snare Drum\",\"Hi-Hat\"],\"default\":\"VA VCF\","
                "\"refreshes_labels\":true},"
-              "%s"
               "{\"key\":\"harmonics\",\"name\":\"%s\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
               "{\"key\":\"timbre\",\"name\":\"%s\",\"type\":\"float\","
@@ -650,7 +637,7 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
               "{\"key\":\"octave_transpose\",\"name\":\"Octave\",\"type\":\"int\","
                "\"min\":-3,\"max\":3,\"default\":0}"
             "]",
-            fm_preset_entry, h, t, m, decay_name, lpg_name, fm_name, aux_name);
+            h, t, m, decay_name, lpg_name, fm_name, aux_name);
         if (len < 0 || len >= buf_len) return -1;
         return len;
     }
