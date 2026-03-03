@@ -725,11 +725,14 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
     inst->patch.morph_modulation_amount     = inst->morph_mod;
 
     // For 6-Op FM engines (2-4), override harmonics LAST to select fm_preset.
-    // This must happen after all knob values are applied to patch.
     // SixOpEngine::Render quantizes (harmonics * 1.02) into 0-31 via
     // HysteresisQuantizer2(32). Map preset index to center of each bin.
     if (inst->engine >= 2 && inst->engine <= 4) {
         inst->patch.harmonics = ((float)inst->fm_preset + 0.5f) / 32.0f;
+        // fm_amount is repurposed as preset selector for 6-Op; zero out
+        // frequency_modulation_amount to prevent stale values from causing
+        // pitch modulation via Voice::Render's ApplyModulations on note.
+        inst->patch.frequency_modulation_amount = 0.0f;
     }
 
     // ── Build Modulations ────────────────────────────────────────────────
