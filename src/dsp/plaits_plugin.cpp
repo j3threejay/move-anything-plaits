@@ -296,9 +296,9 @@ static const int kNumEngines = 24;
 static const char* kEngineLabels[24][3] = {
     {"Detune",     "Cutoff",      "Resonance" },  //  0 VA VCF
     {"Ratio",      "Phase",       "Distortion"},  //  1 Phase Dist
-    {"---",        "Brightness",  "Envelope"  },  //  2 6-Op I  (harmonics overridden by fm_preset)
-    {"---",        "Brightness",  "Envelope"  },  //  3 6-Op II (harmonics overridden by fm_preset)
-    {"---",        "Brightness",  "Envelope"  },  //  4 6-Op III(harmonics overridden by fm_preset)
+    {"Preset",     "Mod Level",   "Env Stretch"},  //  2 6-Op I
+    {"Preset",     "Mod Level",   "Env Stretch"},  //  3 6-Op II
+    {"Preset",     "Mod Level",   "Env Stretch"},  //  4 6-Op III
     {"Terrain",    "X",           "Y"         },  //  5 Wave Terrain
     {"Detune",     "Tone",        "Envelope"  },  //  6 Str Machine
     {"Arpeggio",   "Duty",        "Filter"    },  //  7 Chiptune
@@ -484,9 +484,9 @@ static void set_param(void* instance, const char* key, const char* val) {
             if (v < 0) v = atoi(val);
             v = v < 0 ? 0 : v >= kNumFmPresets ? kNumFmPresets - 1 : v;
             inst->fm_preset = v;
-            // Sync fm_amount so knob position reflects menu selection.
+            // Sync harmonics so knob 2 position reflects menu selection.
             // Map preset index to center of its quantizer bin.
-            inst->fm_amount = ((float)v + 0.5f) / 32.0f;
+            inst->harmonics = ((float)v + 0.5f) / 32.0f;
         }
     }
 }
@@ -585,8 +585,13 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
         const char* m = kEngineLabels[inst->engine][2];
 
         bool is_6op = (inst->engine >= 2 && inst->engine <= 4);
-        const char* decay_name = is_6op ? "---" : "Decay";
+        // 6-Op engines: LPG bypassed (already_enveloped=true), fm_amount and
+        // aux_mix not useful. Label inactive knobs "---" so user knows.
+        // Decay remains active — Voice::Render's decay_envelope still modulates
+        // pitch and timbre even with LPG bypassed.
+        const char* decay_name = "Decay";
         const char* lpg_name   = is_6op ? "---" : "LPG Color";
+        const char* aux_name   = is_6op ? "---" : "Mix";
 
         // Build fm_preset option string for 6-Op engines (menu access)
         char fm_preset_entry[2048] = "";
@@ -608,7 +613,7 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
         // fm_amount: stays float for all engines (host caches type from module.json).
         // For 6-Op, label as "Preset" — knob sweeps through 32 DX7 patches.
         // For others, label as "FM" — controls frequency modulation depth.
-        const char* fm_name = is_6op ? "Preset" : "FM";
+        const char* fm_name = is_6op ? "---" : "FM";
 
         int len = snprintf(buf, buf_len,
             "["
@@ -632,7 +637,7 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
               "{\"key\":\"fm_amount\",\"name\":\"%s\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
-              "{\"key\":\"aux_mix\",\"name\":\"Mix\",\"type\":\"float\","
+              "{\"key\":\"aux_mix\",\"name\":\"%s\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
               "{\"key\":\"timbre_mod\",\"name\":\"Timbre Mod\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
@@ -645,7 +650,7 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
               "{\"key\":\"octave_transpose\",\"name\":\"Octave\",\"type\":\"int\","
                "\"min\":-3,\"max\":3,\"default\":0}"
             "]",
-            fm_preset_entry, h, t, m, decay_name, lpg_name, fm_name);
+            fm_preset_entry, h, t, m, decay_name, lpg_name, fm_name, aux_name);
         if (len < 0 || len >= buf_len) return -1;
         return len;
     }
@@ -689,12 +694,12 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
     inst->patch.timbre_modulation_amount    = inst->timbre_mod;
     inst->patch.morph_modulation_amount     = inst->morph_mod;
 
-    // For 6-Op FM engines (2-4), use fm_amount knob directly as harmonics.
-    // SixOpEngine::Render quantizes (harmonics * 1.02) into 0-31 via
-    // HysteresisQuantizer2(32), selecting one of 32 DX7 patches per bank.
-    // The knob's 0.0-1.0 range maps naturally to all 32 presets.
+    // For 6-Op FM engines (2-4), harmonics knob (knob 2) directly selects
+    // presets — SixOpEngine::Render quantizes (harmonics * 1.02) into 0-31
+    // via HysteresisQuantizer2(32). No override needed; inst->harmonics
+    // flows through naturally. Zero frequency_modulation_amount to prevent
+    // pitch artifacts (fm_amount knob is inactive for 6-Op).
     if (inst->engine >= 2 && inst->engine <= 4) {
-        inst->patch.harmonics = inst->fm_amount;
         inst->patch.frequency_modulation_amount = 0.0f;
     }
 
