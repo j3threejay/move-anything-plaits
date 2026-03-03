@@ -452,28 +452,8 @@ static void set_param(void* instance, const char* key, const char* val) {
         float v = (float)atof(val);
         inst->lpg_colour = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
     } else if (strcmp(key, "fm_amount") == 0) {
-        // For 6-Op engines, fm_amount knob is remapped to fm_preset selector.
-        // chain_params declares this as enum for 6-Op, float for others.
-        if (inst->engine >= 2 && inst->engine <= 4) {
-            int bank = inst->engine - 2;
-            int v = -1;
-            for (int i = 0; i < kNumFmPresets; i++) {
-                if (strcmp(val, kFmPresetNames[bank][i]) == 0) { v = i; break; }
-            }
-            if (v < 0) {
-                float fv = (float)atof(val);
-                if (fv > 0.0f && fv <= 1.0f) {
-                    v = (int)(fv * kNumFmPresets);
-                    if (v >= kNumFmPresets) v = kNumFmPresets - 1;
-                } else {
-                    v = atoi(val);
-                }
-            }
-            inst->fm_preset = v < 0 ? 0 : v >= kNumFmPresets ? kNumFmPresets - 1 : v;
-        } else {
-            float v = (float)atof(val);
-            inst->fm_amount = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
-        }
+        float v = (float)atof(val);
+        inst->fm_amount = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
     } else if (strcmp(key, "timbre_mod") == 0) {
         float v = (float)atof(val);
         inst->timbre_mod = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
@@ -492,7 +472,8 @@ static void set_param(void* instance, const char* key, const char* val) {
         int v = atoi(val);
         inst->octave_transpose = v < -3 ? -3 : v > 3 ? 3 : v;
     } else if (strcmp(key, "fm_preset") == 0) {
-        // Accept preset name string, numeric index, or 0.0-1.0 float from knob
+        // Menu-driven preset selection for 6-Op engines.
+        // Accept preset name string or numeric index.
         int e = inst->engine;
         if (e >= 2 && e <= 4) {
             int bank = e - 2;
@@ -500,17 +481,12 @@ static void set_param(void* instance, const char* key, const char* val) {
             for (int i = 0; i < kNumFmPresets; i++) {
                 if (strcmp(val, kFmPresetNames[bank][i]) == 0) { v = i; break; }
             }
-            if (v < 0) {
-                // Try float: host may send 0.0-1.0 for knob-mapped enum
-                float fv = (float)atof(val);
-                if (fv > 0.0f && fv <= 1.0f) {
-                    v = (int)(fv * kNumFmPresets);
-                    if (v >= kNumFmPresets) v = kNumFmPresets - 1;
-                } else {
-                    v = atoi(val);
-                }
-            }
-            inst->fm_preset = v < 0 ? 0 : v >= kNumFmPresets ? kNumFmPresets - 1 : v;
+            if (v < 0) v = atoi(val);
+            v = v < 0 ? 0 : v >= kNumFmPresets ? kNumFmPresets - 1 : v;
+            inst->fm_preset = v;
+            // Sync fm_amount so knob position reflects menu selection.
+            // Map preset index to center of its quantizer bin.
+            inst->fm_amount = ((float)v + 0.5f) / 32.0f;
         }
     }
 }
@@ -533,14 +509,8 @@ static int get_single_param(const plaits_instance_t* inst, const char* key,
         return snprintf(buf, buf_len, "%.3f", inst->decay);
     if (strcmp(key, "lpg_colour") == 0)
         return snprintf(buf, buf_len, "%.3f", inst->lpg_colour);
-    if (strcmp(key, "fm_amount") == 0) {
-        // For 6-Op engines, fm_amount is remapped to fm_preset selector
-        if (inst->engine >= 2 && inst->engine <= 4) {
-            const char* name = kFmPresetNames[inst->engine - 2][inst->fm_preset];
-            return snprintf(buf, buf_len, "%s", name);
-        }
+    if (strcmp(key, "fm_amount") == 0)
         return snprintf(buf, buf_len, "%.3f", inst->fm_amount);
-    }
     if (strcmp(key, "timbre_mod") == 0)
         return snprintf(buf, buf_len, "%.3f", inst->timbre_mod);
     if (strcmp(key, "morph_mod") == 0)
@@ -620,9 +590,6 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
 
         // Build fm_preset option string for 6-Op engines (menu access)
         char fm_preset_entry[2048] = "";
-        // Build fm_amount entry: enum preset selector for 6-Op, float for others.
-        // The host re-reads chain_params on engine change (refreshes_labels).
-        char fm_amount_entry[2048];
         if (is_6op) {
             int bank = inst->engine - 2;
             char options_buf[1600];
@@ -632,21 +599,16 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                 pos += snprintf(options_buf + pos, sizeof(options_buf) - pos,
                                 "\"%s\"", kFmPresetNames[bank][i]);
             }
-            // fm_preset in menu (separate key for jog-wheel access)
             snprintf(fm_preset_entry, sizeof(fm_preset_entry),
                 "{\"key\":\"fm_preset\",\"name\":\"FM Preset\",\"type\":\"enum\","
                  "\"options\":[%s],\"default\":\"%s\"},",
                 options_buf, kFmPresetNames[bank][0]);
-            // fm_amount remapped to preset enum on knob 7
-            snprintf(fm_amount_entry, sizeof(fm_amount_entry),
-                "{\"key\":\"fm_amount\",\"name\":\"FM Preset\",\"type\":\"enum\","
-                 "\"options\":[%s],\"default\":\"%s\"}",
-                options_buf, kFmPresetNames[bank][0]);
-        } else {
-            snprintf(fm_amount_entry, sizeof(fm_amount_entry),
-                "{\"key\":\"fm_amount\",\"name\":\"FM\",\"type\":\"float\","
-                 "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0}");
         }
+
+        // fm_amount: stays float for all engines (host caches type from module.json).
+        // For 6-Op, label as "Preset" — knob sweeps through 32 DX7 patches.
+        // For others, label as "FM" — controls frequency modulation depth.
+        const char* fm_name = is_6op ? "Preset" : "FM";
 
         int len = snprintf(buf, buf_len,
             "["
@@ -668,7 +630,8 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
               "{\"key\":\"lpg_colour\",\"name\":\"%s\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
-              "%s,"
+              "{\"key\":\"fm_amount\",\"name\":\"%s\",\"type\":\"float\","
+               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
               "{\"key\":\"aux_mix\",\"name\":\"Mix\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
               "{\"key\":\"timbre_mod\",\"name\":\"Timbre Mod\",\"type\":\"float\","
@@ -682,7 +645,7 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
               "{\"key\":\"octave_transpose\",\"name\":\"Octave\",\"type\":\"int\","
                "\"min\":-3,\"max\":3,\"default\":0}"
             "]",
-            fm_preset_entry, h, t, m, decay_name, lpg_name, fm_amount_entry);
+            fm_preset_entry, h, t, m, decay_name, lpg_name, fm_name);
         if (len < 0 || len >= buf_len) return -1;
         return len;
     }
@@ -726,14 +689,12 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
     inst->patch.timbre_modulation_amount    = inst->timbre_mod;
     inst->patch.morph_modulation_amount     = inst->morph_mod;
 
-    // For 6-Op FM engines (2-4), override harmonics LAST to select fm_preset.
+    // For 6-Op FM engines (2-4), use fm_amount knob directly as harmonics.
     // SixOpEngine::Render quantizes (harmonics * 1.02) into 0-31 via
-    // HysteresisQuantizer2(32). Map preset index to center of each bin.
+    // HysteresisQuantizer2(32), selecting one of 32 DX7 patches per bank.
+    // The knob's 0.0-1.0 range maps naturally to all 32 presets.
     if (inst->engine >= 2 && inst->engine <= 4) {
-        inst->patch.harmonics = ((float)inst->fm_preset + 0.5f) / 32.0f;
-        // fm_amount is repurposed as preset selector for 6-Op; zero out
-        // frequency_modulation_amount to prevent stale values from causing
-        // pitch modulation via Voice::Render's ApplyModulations on note.
+        inst->patch.harmonics = inst->fm_amount;
         inst->patch.frequency_modulation_amount = 0.0f;
     }
 
