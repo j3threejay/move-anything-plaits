@@ -30,6 +30,46 @@ static const int   LEGATO_ON  = 1;
 
 static constexpr float kOutputVolume = 0.85f;  // internal output scalar, not user-exposed
 
+static const int kNumFmPresets = 32;
+
+// Preset names extracted from syx bank data (bytes 118-127 of each 128-byte patch).
+// Indexed as kFmPresetNames[bank][preset], where bank 0/1/2 = engine 2/3/4.
+static const char* kFmPresetNames[3][32] = {
+    // Bank 0: 6-Op I — Basses & Synths
+    {
+        "SOLID BASS", "Mooger Low", "LeaderTape", "MORHOL TB1",
+        "BASS    3",  "BILL BASS",  "BASS    1",  "ELEC BASS",
+        "S.BAS 27.7", "RESONANCES", "SYN-BASS 2", "PRC SYNTH1",
+        "CROMA 2",    "ANALOG  4",  "ANALOG A",   "ANALOG  6",
+        "CS 80",      "INSERT 1",   "SPIRAL",     "DX-TROTT",
+        "GASHAUS",    "RING DING",  "PAPAGAYO",   "WINEGLASS",
+        "AMYTAL",     "FAIRLIGHT",  "*PPG*Vol.1", "*PPG*Vol.2",
+        "*Fairl. 3",  "*Vocoder 2", "*Sequence",  "Bounce 4",
+    },
+    // Bank 1: 6-Op II — Keys & Plucked
+    {
+        "E.PIANO 1",  "FENDER 1",   "WINTRHODES", "RS-EP C",
+        "*Mark III",  "CLAV-E.PNO", "SYN-CLAV",   "CLAVINET",
+        "PIANO   5",  "GRD PIANO1", "STEINWAY",   "GUIT ACOUS",
+        "SITAR",      "KOTO",       "HARPSICH 1", "CLAV    3",
+        "XYLOPHONE",  "MARIMBA",    "VIBE    1",  "GLOKENSPL",
+        "BELL C",     "BELLS",      "TUB BELLS",  "GONG    2",
+        "KETTLE 6",   "MID DRM 3",  "ORI DRUM 1", "WOOD 6",
+        "LATN DRM 4", "CIMBAL",     "SYNDM 25.8", "B.DRM-SNAR",
+    },
+    // Bank 2: 6-Op III — Organs, Pads & Brass
+    {
+        "CLICK 124",  "*Hammond 1", "E.ORGAN 3",  "60-S ORGAN",
+        "OPTIC 28",   "PIPES   1",  "PIPES   3",  "PIPES   2",
+        "JX-33-P",    "SOUNDTRACK", "ICE PAD  2", "M1 PADS",
+        "CARLOS   2", "SOFT TOUCH", "*Planets",   "CIRRUS",
+        "ENTRIX",     "MAL POLY",   "Textures 6", "Etherial5a",
+        "'Airy'",     "BORON A",    "VANGELIS 1", "STRINGS C",
+        "STRINGS 3",  "STRINGS 2",  "STRINGS 7",  "FULL STRIN",
+        "SYN-ORCH",   "BRASS   1",  "BRASS 6 BC", "BR TRUMPET",
+    },
+};
+
 // ──────────────────────────────────────────────────────────────────────────
 // Per-engine default parameter values.
 // Applied ONCE when an engine is first visited in a session.
@@ -104,6 +144,7 @@ struct plaits_instance_t {
     float aux_mix;
     float velocity_sensitivity;
     int   octave_transpose;
+    int   fm_preset;          // 0-31, selects preset within 6-Op FM banks (engines 2-4)
 
     // Render frame buffer (plaits::Voice::Frame has interleaved short out/aux)
     plaits::Voice::Frame frame_buf[BLOCK_SIZE];
@@ -111,6 +152,10 @@ struct plaits_instance_t {
     // Engine switch tracking
     int  previous_engine;  // detects change in set_param to trigger voice reset
     bool engine_visited[24]; // true after first visit; prevents re-applying defaults
+
+    // Chiptune arpeggiator self-clock and gate envelope
+    float chiptune_clock_phase;  // 0-1 accumulator for arp self-clock
+    float chiptune_gate_env;     // amplitude envelope for note-off release
 };
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -147,6 +192,7 @@ static void* create_instance(const char* module_dir, const char* json_defaults) 
     inst->aux_mix            = 0.0f;
     inst->velocity_sensitivity = 0.5f;
     inst->octave_transpose   = 0;
+    inst->fm_preset          = 0;
     inst->legato_mode        = LEGATO_OFF;
 
     // Note state
@@ -154,6 +200,9 @@ static void* create_instance(const char* module_dir, const char* json_defaults) 
     inst->note_active     = false;
     inst->trigger_pending = false;
     inst->velocity        = 1.0f;
+
+    inst->chiptune_clock_phase = 0.0f;
+    inst->chiptune_gate_env    = 0.0f;
 
     return inst;
 }
@@ -247,9 +296,9 @@ static const int kNumEngines = 24;
 static const char* kEngineLabels[24][3] = {
     {"Detune",     "Cutoff",      "Resonance" },  //  0 VA VCF
     {"Ratio",      "Phase",       "Distortion"},  //  1 Phase Dist
-    {"Ratio",      "Feedback",    "Level"     },  //  2 6-Op I
-    {"Ratio",      "Feedback",    "Level"     },  //  3 6-Op II
-    {"Ratio",      "Feedback",    "Level"     },  //  4 6-Op III
+    {"Preset",     "Brightness",  "Envelope"  },  //  2 6-Op I
+    {"Preset",     "Brightness",  "Envelope"  },  //  3 6-Op II
+    {"Preset",     "Brightness",  "Envelope"  },  //  4 6-Op III
     {"Terrain",    "X",           "Y"         },  //  5 Wave Terrain
     {"Detune",     "Tone",        "Envelope"  },  //  6 Str Machine
     {"Arpeggio",   "Duty",        "Filter"    },  //  7 Chiptune
@@ -351,9 +400,30 @@ static void set_param(void* instance, const char* key, const char* val) {
         if (v < 0) v = atoi(val);  // fallback: numeric string
         int new_engine = (v < 0) ? 0 : (v >= kNumEngines) ? kNumEngines - 1 : v;
         if (new_engine != inst->previous_engine) {
+            int old_engine = inst->previous_engine;
             inst->engine = new_engine;
             inst->previous_engine = new_engine;
-            reset_voice(inst);
+
+            // The three 6-Op FM engines (indices 2, 3, 4) are the SAME
+            // SixOpEngine instance registered three times in voice.cc.
+            // Differentiation comes from LoadUserData(fm_patches_table[idx])
+            // called by Voice::Render when it detects an engine_index change.
+            //
+            // Skip reset_voice for 6-Op <-> 6-Op switches:
+            //  - reset_voice calls Voice::Init which re-inits SixOpEngine 3x
+            //    on the same object, potentially corrupting shared allocator
+            //    state that the engine depends on for patch bank storage.
+            //  - All three registrations use already_enveloped=true (LPG
+            //    bypassed), so no stale envelope state carries over.
+            //  - Matches original Plaits hardware behavior: Voice::Init is
+            //    called once at boot; engine switches are handled entirely
+            //    by Voice::Render via previous_engine_index_ detection.
+            bool old_is_6op = (old_engine >= 2 && old_engine <= 4);
+            bool new_is_6op = (new_engine >= 2 && new_engine <= 4);
+            if (!(old_is_6op && new_is_6op)) {
+                reset_voice(inst);
+            }
+
             // Apply per-engine defaults on first visit only.
             // Subsequent visits restore last-used values.
             if (!inst->engine_visited[new_engine]) {
@@ -401,6 +471,18 @@ static void set_param(void* instance, const char* key, const char* val) {
     } else if (strcmp(key, "octave_transpose") == 0) {
         int v = atoi(val);
         inst->octave_transpose = v < -3 ? -3 : v > 3 ? 3 : v;
+    } else if (strcmp(key, "fm_preset") == 0) {
+        // Accept preset name string or numeric index
+        int e = inst->engine;
+        if (e >= 2 && e <= 4) {
+            int bank = e - 2;
+            int v = -1;
+            for (int i = 0; i < kNumFmPresets; i++) {
+                if (strcmp(val, kFmPresetNames[bank][i]) == 0) { v = i; break; }
+            }
+            if (v < 0) v = atoi(val);
+            inst->fm_preset = v < 0 ? 0 : v >= kNumFmPresets ? kNumFmPresets - 1 : v;
+        }
     }
 }
 
@@ -437,6 +519,13 @@ static int get_single_param(const plaits_instance_t* inst, const char* key,
         return snprintf(buf, buf_len, "%.3f", inst->velocity_sensitivity);
     if (strcmp(key, "octave_transpose") == 0)
         return snprintf(buf, buf_len, "%d", inst->octave_transpose);
+    if (strcmp(key, "fm_preset") == 0) {
+        int e = inst->engine;
+        if (e >= 2 && e <= 4) {
+            return snprintf(buf, buf_len, "%s", kFmPresetNames[e - 2][inst->fm_preset]);
+        }
+        return snprintf(buf, buf_len, "%d", inst->fm_preset);
+    }
     return -1;
 }
 
@@ -459,6 +548,7 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                               "\"decay\",\"lpg_colour\",\"fm_amount\",\"aux_mix\"],"
                   "\"params\":["
                     "{\"key\":\"engine\",\"label\":\"Engine\",\"type\":\"enum\"},"
+                    "{\"key\":\"fm_preset\",\"label\":\"FM Preset\",\"type\":\"enum\"},"
                     "{\"key\":\"harmonics\",\"label\":\"Harmonics\"},"
                     "{\"key\":\"timbre\",\"label\":\"Timbre\"},"
                     "{\"key\":\"morph\",\"label\":\"Morph\"},"
@@ -483,10 +573,29 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
 
     // chain_params — parameter metadata for Shadow UI knob editing
     // Returns engine-specific names for harmonics, timbre, morph.
+    // For 6-Op engines (2-4), includes fm_preset enum with bank-specific preset names.
     if (strcmp(key, "chain_params") == 0) {
         const char* h = kEngineLabels[inst->engine][0];
         const char* t = kEngineLabels[inst->engine][1];
         const char* m = kEngineLabels[inst->engine][2];
+
+        // Build fm_preset option string for 6-Op engines
+        char fm_preset_entry[2048] = "";
+        if (inst->engine >= 2 && inst->engine <= 4) {
+            int bank = inst->engine - 2;
+            char options_buf[1600];
+            int pos = 0;
+            for (int i = 0; i < kNumFmPresets; i++) {
+                if (i > 0) pos += snprintf(options_buf + pos, sizeof(options_buf) - pos, ",");
+                pos += snprintf(options_buf + pos, sizeof(options_buf) - pos,
+                                "\"%s\"", kFmPresetNames[bank][i]);
+            }
+            snprintf(fm_preset_entry, sizeof(fm_preset_entry),
+                "{\"key\":\"fm_preset\",\"name\":\"FM Preset\",\"type\":\"enum\","
+                 "\"options\":[%s],\"default\":\"%s\"},",
+                options_buf, kFmPresetNames[bank][0]);
+        }
+
         int len = snprintf(buf, buf_len,
             "["
               "{\"key\":\"engine\",\"name\":\"Engine\",\"type\":\"enum\","
@@ -496,6 +605,7 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                "\"Swarm\",\"Noise\",\"Particle\",\"String\",\"Modal\","
                "\"Bass Drum\",\"Snare Drum\",\"Hi-Hat\"],\"default\":\"VA VCF\","
                "\"refreshes_labels\":true},"
+              "%s"
               "{\"key\":\"harmonics\",\"name\":\"%s\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
               "{\"key\":\"timbre\",\"name\":\"%s\",\"type\":\"float\","
@@ -521,7 +631,7 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
               "{\"key\":\"octave_transpose\",\"name\":\"Octave\",\"type\":\"int\","
                "\"min\":-3,\"max\":3,\"default\":0}"
             "]",
-            h, t, m);
+            fm_preset_entry, h, t, m);
         if (len < 0 || len >= buf_len) return -1;
         return len;
     }
@@ -556,7 +666,14 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
     inst->patch.engine   = inst->engine;
     inst->patch.note     = (float)(inst->current_note + inst->octave_transpose * 12)
                            + kPitchOffset;
-    inst->patch.harmonics = inst->harmonics;
+    // For 6-Op FM engines (2-4), override harmonics to select the fm_preset.
+    // SixOpEngine::Render quantizes (harmonics * 1.02) into 0-31 via
+    // HysteresisQuantizer2(32). Map preset index to center of each bin.
+    if (inst->engine >= 2 && inst->engine <= 4) {
+        inst->patch.harmonics = ((float)inst->fm_preset + 0.5f) / 32.0f;
+    } else {
+        inst->patch.harmonics = inst->harmonics;
+    }
     inst->patch.timbre    = inst->timbre;
     inst->patch.morph     = inst->morph;
     inst->patch.decay     = inst->decay;
@@ -571,8 +688,30 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
     inst->mods.level_patched   = true;
 
     // Trigger: pulse for one render block after Note On
-    inst->mods.trigger    = inst->trigger_pending ? 1.0f : 0.0f;
+    bool had_note_on = inst->trigger_pending;
+    inst->mods.trigger    = had_note_on ? 1.0f : 0.0f;
     inst->trigger_pending = false;
+
+    // Chiptune (engine 7) self-clock: the arpeggiator only advances on
+    // TRIGGER_RISING_EDGE events.  On hardware these come from an external
+    // clock patch; here we self-clock so the arpeggio cycles continuously
+    // while a note is held.  Decay knob controls arp rate.
+    if (inst->engine == 7) {
+        if (had_note_on) {
+            // Note-on: reset clock phase, open gate envelope
+            inst->chiptune_clock_phase = 0.0f;
+            inst->chiptune_gate_env = 1.0f;
+        } else if (inst->note_active) {
+            // Arp rate from Decay: 0 → fast (16 Hz), 1 → slow (2 Hz)
+            float arp_rate = 2.0f * powf(8.0f, 1.0f - inst->decay);
+            float block_time = (float)frames / 44100.0f;
+            inst->chiptune_clock_phase += arp_rate * block_time;
+            if (inst->chiptune_clock_phase >= 1.0f) {
+                inst->chiptune_clock_phase -= floorf(inst->chiptune_clock_phase);
+                inst->mods.trigger = 1.0f;
+            }
+        }
+    }
 
     // Level: controls LPG amplitude (gate + velocity)
     if (inst->note_active) {
@@ -605,6 +744,16 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
     // ── Convert Frame output to int16 stereo with output routing ────────
     const float gain = kOutputVolume;
     const float eg = kGainTable[inst->engine];
+
+    // Chiptune gate envelope: since already_enveloped=true bypasses the LPG,
+    // we apply our own amplitude envelope so notes release on note-off.
+    // Decay knob controls release time: 0 → ~10ms, 1 → ~2s.
+    float ct_decay_rate = 1.0f;
+    if (inst->engine == 7 && !inst->note_active) {
+        float release_s = 0.01f + inst->decay * inst->decay * 2.0f;
+        ct_decay_rate = 1.0f - 1.0f / (release_s * 44100.0f);
+    }
+
     for (int i = 0; i < frames; i++) {
         // Frame values are already int16 range (short)
         float out_f = -inst->frame_buf[i].out / 32767.0f * eg;
@@ -615,7 +764,17 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
         // Percussion AUX carries a separate drum voice (e.g. open vs closed hi-hat).
         // Blending is intentional — allows mixing the two drum voices via the Mix knob.
         const float blended = out_f * (1.0f - inst->aux_mix) + aux_f * inst->aux_mix;
-        const float sample = blended * gain;
+        float sample = blended * gain;
+
+        // Chiptune gate envelope: hold while note active, decay on release
+        if (inst->engine == 7) {
+            if (inst->note_active) {
+                inst->chiptune_gate_env = 1.0f;
+            } else {
+                inst->chiptune_gate_env *= ct_decay_rate;
+            }
+            sample *= inst->chiptune_gate_env;
+        }
 
         // Clamp and write
         const int16_t s = (int16_t)fmaxf(-32768.0f, fminf(32767.0f, sample * 32767.0f));  // hard clip intentional
