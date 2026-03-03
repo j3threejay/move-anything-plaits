@@ -127,9 +127,12 @@ void SixOpEngine::Render(
   } else {
     if (parameters.trigger & TRIGGER_RISING_EDGE) {
       active_voice_ = (active_voice_ + 1) % kNumSixOpVoices;
-      voice_[active_voice_].LoadPatch(&patches_[patch_index]);
       voice_[active_voice_].mutable_lfo()->Reset();
     }
+    // LoadPatch outside rising-edge gate: if patch_index changed (fm_preset
+    // knob turned), the active voice picks up the new patch immediately.
+    // FMVoice::LoadPatch is a no-op when the pointer hasn't changed.
+    voice_[active_voice_].LoadPatch(&patches_[patch_index]);
     Voice<6>::Parameters* p = voice_[active_voice_].mutable_parameters();
     p->note = parameters.note;
     p->velocity = parameters.accent;
