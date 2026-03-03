@@ -615,6 +615,8 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
         const char* m = kEngineLabels[inst->engine][2];
 
         bool is_6op = (inst->engine >= 2 && inst->engine <= 4);
+        const char* decay_name = is_6op ? "---" : "Decay";
+        const char* lpg_name   = is_6op ? "---" : "LPG Color";
 
         // Build fm_preset option string for 6-Op engines (menu access)
         char fm_preset_entry[2048] = "";
@@ -662,9 +664,9 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
               "{\"key\":\"morph\",\"name\":\"%s\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
-              "{\"key\":\"decay\",\"name\":\"Decay\",\"type\":\"float\","
+              "{\"key\":\"decay\",\"name\":\"%s\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
-              "{\"key\":\"lpg_colour\",\"name\":\"LPG Color\",\"type\":\"float\","
+              "{\"key\":\"lpg_colour\",\"name\":\"%s\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
               "%s,"
               "{\"key\":\"aux_mix\",\"name\":\"Mix\",\"type\":\"float\","
@@ -680,7 +682,7 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
               "{\"key\":\"octave_transpose\",\"name\":\"Octave\",\"type\":\"int\","
                "\"min\":-3,\"max\":3,\"default\":0}"
             "]",
-            fm_preset_entry, h, t, m, fm_amount_entry);
+            fm_preset_entry, h, t, m, decay_name, lpg_name, fm_amount_entry);
         if (len < 0 || len >= buf_len) return -1;
         return len;
     }
