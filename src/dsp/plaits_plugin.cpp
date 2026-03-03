@@ -333,9 +333,9 @@ static const char* kEngineLabels[24][3] = {
 static constexpr float kGainTable[24] = {
     1.0f,  //  0 VA VCF       (VirtualAnalogVCFEngine)
     1.0f,  //  1 Phase Dist   (PhaseDistortionEngine)
-    2.8f,  //  2 6-Op I       (SixOpEngine)
-    2.8f,  //  3 6-Op II      (SixOpEngine)
-    2.8f,  //  4 6-Op III     (SixOpEngine)
+    8.0f,  //  2 6-Op I       (SixOpEngine — 0.25f internal scaling + LPG)
+    8.0f,  //  3 6-Op II      (SixOpEngine — 0.25f internal scaling + LPG)
+    8.0f,  //  4 6-Op III     (SixOpEngine — 0.25f internal scaling + LPG)
     1.8f,  //  5 Wave Terr    (WaveTerrainEngine)
     1.5f,  //  6 Str Mach     (StringMachineEngine)
     1.2f,  //  7 Chiptune     (ChiptuneEngine)
@@ -414,8 +414,8 @@ static void set_param(void* instance, const char* key, const char* val) {
             //  - reset_voice calls Voice::Init which re-inits SixOpEngine 3x
             //    on the same object, potentially corrupting shared allocator
             //    state that the engine depends on for patch bank storage.
-            //  - All three registrations use already_enveloped=true (LPG
-            //    bypassed), so no stale envelope state carries over.
+            //  - LPG envelope state carrying over between 6-Op variants is
+            //    fine — all three share the same post-processing settings.
             //  - Matches original Plaits hardware behavior: Voice::Init is
             //    called once at boot; engine switches are handled entirely
             //    by Voice::Render via previous_engine_index_ detection.
@@ -587,20 +587,15 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
         const char* m = kEngineLabels[inst->engine][2];
 
         bool is_6op = (inst->engine >= 2 && inst->engine <= 4);
-        // 6-Op engines: LPG bypassed (already_enveloped=true). DX7 patches
-        // have their own operator envelopes. Decay, LPG Color, FM, and Mix
-        // knobs are non-functional — label "---" so user knows.
-        const char* decay_name = is_6op ? "---" : "Decay";
-        const char* lpg_name   = is_6op ? "---" : "LPG Color";
-        const char* aux_name   = is_6op ? "---" : "Mix";
 
         // fm_preset menu entry removed from chain_params to avoid buffer
         // overflow (~550 bytes of preset names pushed 6-Op JSON past host's
         // buf_len, causing labels to not update). Preset selection is on
         // knob 2 (harmonics). fm_preset remains accessible via ui_hierarchy.
 
-        // fm_amount: inactive for 6-Op (preset selection moved to harmonics knob).
-        // For other engines, controls frequency modulation depth.
+        // fm_amount: inactive for 6-Op (zeroed in render_block to prevent
+        // decay envelope pitch wobble). For other engines, controls
+        // frequency modulation depth.
         const char* fm_name = is_6op ? "---" : "FM";
 
         int len = snprintf(buf, buf_len,
@@ -618,13 +613,13 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
               "{\"key\":\"morph\",\"name\":\"%s\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
-              "{\"key\":\"decay\",\"name\":\"%s\",\"type\":\"float\","
+              "{\"key\":\"decay\",\"name\":\"Decay\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
-              "{\"key\":\"lpg_colour\",\"name\":\"%s\",\"type\":\"float\","
+              "{\"key\":\"lpg_colour\",\"name\":\"LPG Color\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
               "{\"key\":\"fm_amount\",\"name\":\"%s\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
-              "{\"key\":\"aux_mix\",\"name\":\"%s\",\"type\":\"float\","
+              "{\"key\":\"aux_mix\",\"name\":\"Mix\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
               "{\"key\":\"timbre_mod\",\"name\":\"Timbre Mod\",\"type\":\"float\","
                "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
@@ -637,7 +632,7 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
               "{\"key\":\"octave_transpose\",\"name\":\"Octave\",\"type\":\"int\","
                "\"min\":-3,\"max\":3,\"default\":0}"
             "]",
-            h, t, m, decay_name, lpg_name, fm_name, aux_name);
+            h, t, m, fm_name);
         if (len < 0 || len >= buf_len) return -1;
         return len;
     }
@@ -685,7 +680,7 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
     // presets — SixOpEngine::Render quantizes (harmonics * 1.02) into 0-31
     // via HysteresisQuantizer2(32). No override needed; inst->harmonics
     // flows through naturally. Zero frequency_modulation_amount to prevent
-    // pitch artifacts (fm_amount knob is inactive for 6-Op).
+    // decay envelope from modulating pitch (fm_amount knob is "---" for 6-Op).
     if (inst->engine >= 2 && inst->engine <= 4) {
         inst->patch.frequency_modulation_amount = 0.0f;
     }
@@ -753,8 +748,8 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
     const float gain = kOutputVolume;
     const float eg = kGainTable[inst->engine];
 
-    // Chiptune gate envelope: since already_enveloped=true bypasses the LPG,
-    // we apply our own amplitude envelope so notes release on note-off.
+    // Chiptune gate envelope: chiptune uses already_enveloped=true (bypasses
+    // LPG), so we apply our own amplitude envelope for note-off release.
     // Decay knob controls release time: 0 → ~10ms, 1 → ~2s.
     float ct_decay_rate = 1.0f;
     if (inst->engine == 7 && !inst->note_active) {
