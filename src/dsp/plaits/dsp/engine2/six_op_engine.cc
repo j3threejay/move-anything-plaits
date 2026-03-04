@@ -79,12 +79,8 @@ void SixOpEngine::Init(BufferAllocator* allocator) {
   for (int i = 0; i < kNumSixOpVoices; ++i) {
     voice_[i].Init(&algorithms_, kCorrectedSampleRate);
   }
-  temp_buffer_ = allocator->Allocate<float>(kMaxBlockSize * 4);
-  acc_buffer_ = allocator->Allocate<float>(kMaxBlockSize * kNumSixOpVoices);
+  temp_buffer_ = allocator->Allocate<float>(kMaxBlockSize);
   patches_ = allocator->Allocate<fm::Patch>(kNumPatchesPerBank);
-  
-  active_voice_ = kNumSixOpVoices - 1;
-  rendered_voice_ = 0;
 }
 
 void SixOpEngine::Reset() {
@@ -108,76 +104,42 @@ void SixOpEngine::Render(
     bool* already_enveloped) {
   int patch_index = patch_index_quantizer_.Process(
       parameters.harmonics * 1.02f);
-  
+
   if (parameters.trigger & TRIGGER_UNPATCHED) {
     const float t = parameters.morph;
     voice_[0].mutable_lfo()->Scrub(2.0f * kCorrectedSampleRate * t);
-
-    for (int i = 0; i < kNumSixOpVoices; ++i) {
-      voice_[i].LoadPatch(&patches_[patch_index]);
-      Voice<6>::Parameters* p = voice_[i].mutable_parameters();
-      p->sustain = i == 0 ? true : false;
-      p->gate = false;
-      p->note = parameters.note;
-      p->velocity = parameters.accent;
-      p->brightness = parameters.timbre;
-      p->envelope_control = t;
-      voice_[i].set_modulations(voice_[0].lfo());
-    }
+    voice_[0].LoadPatch(&patches_[patch_index]);
+    Voice<6>::Parameters* p = voice_[0].mutable_parameters();
+    p->sustain = true;
+    p->gate = false;
+    p->note = parameters.note;
+    p->velocity = parameters.accent;
+    p->brightness = parameters.timbre;
+    p->envelope_control = t;
+    voice_[0].set_modulations(voice_[0].lfo());
   } else {
     if (parameters.trigger & TRIGGER_RISING_EDGE) {
-      active_voice_ = (active_voice_ + 1) % kNumSixOpVoices;
-      voice_[active_voice_].mutable_lfo()->Reset();
+      voice_[0].mutable_lfo()->Reset();
     }
-    // LoadPatch outside rising-edge gate: if patch_index changed (fm_preset
-    // knob turned), the active voice picks up the new patch immediately.
-    // FMVoice::LoadPatch is a no-op when the pointer hasn't changed.
-    voice_[active_voice_].LoadPatch(&patches_[patch_index]);
-    Voice<6>::Parameters* p = voice_[active_voice_].mutable_parameters();
+    voice_[0].LoadPatch(&patches_[patch_index]);
+    Voice<6>::Parameters* p = voice_[0].mutable_parameters();
     p->note = parameters.note;
     p->velocity = parameters.accent;
     p->envelope_control = parameters.morph;
-    voice_[active_voice_].mutable_lfo()->Step(float(size));
-    
-    for (int i = 0; i < kNumSixOpVoices; ++i) {
-      Voice<6>::Parameters* p = voice_[i].mutable_parameters();
-      p->brightness = parameters.timbre;
-      p->sustain = false;
-      p->gate = (parameters.trigger & TRIGGER_HIGH) && (i == active_voice_);
-      if (voice_[i].patch() != voice_[active_voice_].patch()) {
-        voice_[i].mutable_lfo()->Step(float(size));
-        voice_[i].set_modulations(voice_[i].lfo());
-      } else {
-        voice_[i].set_modulations(voice_[active_voice_].lfo());
-      }
-    }
+    p->brightness = parameters.timbre;
+    p->sustain = false;
+    p->gate = (parameters.trigger & TRIGGER_HIGH) != 0;
+    voice_[0].mutable_lfo()->Step(float(size));
+    voice_[0].set_modulations(voice_[0].lfo());
   }
 
-  // Naive block rendering.
-  // fill(temp_buffer_[0], temp_buffer_[size], 0.0f);
-  // for (int i = 0; i < kNumSixOpVoices; ++i) {
-  //   voice_[i].Render(temp_buffer_, size);
-  // }
-
-  // Staggered rendering.
-  copy(
-      &acc_buffer_[0],
-      &acc_buffer_[(kNumSixOpVoices - 1) * size],
-      &temp_buffer_[0]);
-  fill(
-      &temp_buffer_[(kNumSixOpVoices - 1) * size],
-      &temp_buffer_[kNumSixOpVoices * size],
-      0.0f);
-  rendered_voice_ = (rendered_voice_ + 1) % kNumSixOpVoices;
-  voice_[rendered_voice_].Render(temp_buffer_, size * kNumSixOpVoices);
+  // Direct rendering — single voice, no staggering needed.
+  fill(&temp_buffer_[0], &temp_buffer_[size], 0.0f);
+  voice_[0].Render(temp_buffer_, size);
 
   for (size_t i = 0; i < size; ++i) {
     aux[i] = out[i] = SoftClip(temp_buffer_[i] * 0.25f);
   }
-  copy(
-      &temp_buffer_[size],
-      &temp_buffer_[kNumSixOpVoices * size],
-      &acc_buffer_[0]);
 }
 
 }  // namespace plaits

@@ -39,7 +39,7 @@
 
 namespace plaits {
 
-const int kNumSixOpVoices = 2;
+const int kNumSixOpVoices = 1;
 
 class FMVoice {
  public:
@@ -106,9 +106,6 @@ class SixOpEngine : public Engine {
   fm::Patch* patches_;
   FMVoice voice_[kNumSixOpVoices];
   float* temp_buffer_;
-  float* acc_buffer_;
-  int active_voice_;
-  int rendered_voice_;
   
   DISALLOW_COPY_AND_ASSIGN(SixOpEngine);
 };
