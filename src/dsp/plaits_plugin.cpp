@@ -132,6 +132,12 @@ struct plaits_instance_t {
     float velocity;       // Last note velocity, 0.0-1.0
     int  legato_mode;     // LEGATO_OFF or LEGATO_ON
 
+    // Note stack for mono voice stealing with return-to-held
+    static const int NOTE_STACK_SIZE = 16;
+    uint8_t note_stack[NOTE_STACK_SIZE];  // MIDI notes, oldest at [0]
+    float   vel_stack[NOTE_STACK_SIZE];   // velocity for each stacked note
+    int     note_stack_len;               // number of notes currently held
+
     // Parameters
     int   engine;
     float harmonics;
@@ -201,6 +207,7 @@ static void* create_instance(const char* module_dir, const char* json_defaults) 
     inst->note_active     = false;
     inst->trigger_pending = false;
     inst->velocity        = 1.0f;
+    inst->note_stack_len  = 0;
 
     inst->chiptune_clock_phase = 0.0f;
     inst->chiptune_gate_env    = 0.0f;
@@ -230,10 +237,28 @@ static void on_midi(void* instance, const uint8_t* msg, int len, int source) {
     uint8_t vel    = msg[2];
 
     if (status == 0x90 && vel > 0) {
-        // Note On
+        // Note On — remove if already in stack (re-press), then push
+        for (int i = 0; i < inst->note_stack_len; i++) {
+            if (inst->note_stack[i] == note) {
+                // Shift down to remove duplicate
+                for (int j = i; j < inst->note_stack_len - 1; j++) {
+                    inst->note_stack[j] = inst->note_stack[j + 1];
+                    inst->vel_stack[j]  = inst->vel_stack[j + 1];
+                }
+                inst->note_stack_len--;
+                break;
+            }
+        }
+        // Push onto top of stack
+        if (inst->note_stack_len < plaits_instance_t::NOTE_STACK_SIZE) {
+            inst->note_stack[inst->note_stack_len] = note;
+            inst->vel_stack[inst->note_stack_len]  = vel / 127.0f;
+            inst->note_stack_len++;
+        }
+
+        // Retrigger logic
         bool retrigger = true;
         if (inst->legato_mode == LEGATO_ON && inst->note_active) {
-            // Legato: don't retrigger LPG when a note is already held
             retrigger = false;
         }
         inst->current_note    = (int)note;
@@ -242,19 +267,39 @@ static void on_midi(void* instance, const uint8_t* msg, int len, int source) {
         inst->trigger_pending = retrigger;
 
     } else if (status == 0x80 || (status == 0x90 && vel == 0)) {
-        // Note Off (0x80) or Note On with velocity 0 (treated as note off)
-        if (note == (uint8_t)inst->current_note) {
+        // Note Off — remove from stack
+        for (int i = 0; i < inst->note_stack_len; i++) {
+            if (inst->note_stack[i] == note) {
+                for (int j = i; j < inst->note_stack_len - 1; j++) {
+                    inst->note_stack[j] = inst->note_stack[j + 1];
+                    inst->vel_stack[j]  = inst->vel_stack[j + 1];
+                }
+                inst->note_stack_len--;
+                break;
+            }
+        }
+
+        if (inst->note_stack_len > 0) {
+            // Return to the most recent still-held note
+            int top = inst->note_stack_len - 1;
+            inst->current_note    = (int)inst->note_stack[top];
+            inst->velocity        = inst->vel_stack[top];
+            inst->note_active     = true;
+            inst->trigger_pending = true;  // retrigger so LPG re-opens
+        } else {
+            // No notes held — release
             inst->note_active     = false;
             inst->trigger_pending = false;
         }
 
     } else if (status == 0xB0) {
         // Control Change
-        uint8_t cc  = msg[1];
+        uint8_t cc = msg[1];
         if (cc == 123 || cc == 120) {
-            // All Notes Off (123) or All Sound Off (120)
+            // All Notes Off / All Sound Off
             inst->note_active     = false;
             inst->trigger_pending = false;
+            inst->note_stack_len  = 0;
         }
     }
 }
