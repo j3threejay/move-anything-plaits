@@ -43,8 +43,9 @@ jobs:
       - name: Update release.json
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          git fetch origin main
-          git checkout -f main
+          DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
+          git fetch origin "$DEFAULT_BRANCH"
+          git checkout -f "$DEFAULT_BRANCH"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
@@ -57,4 +58,4 @@ jobs:
 
           git add release.json
           git commit -m "chore: update release.json for ${{ github.ref_name }}" || echo "No changes"
-          git push origin main
+          git push origin "$DEFAULT_BRANCH"
