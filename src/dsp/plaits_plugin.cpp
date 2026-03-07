@@ -431,11 +431,112 @@ static void reset_voice(plaits_instance_t* inst) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// JSON helper for state restore (minimal — finds "key":number in flat JSON)
+// ──────────────────────────────────────────────────────────────────────────
+
+static int json_find_number(const char* json, const char* key, float* out) {
+    if (!json || !key) return -1;
+    char needle[64];
+    int nlen = snprintf(needle, sizeof(needle), "\"%s\"", key);
+    const char* p = json;
+    while ((p = strstr(p, needle)) != NULL) {
+        // Verify exact key match: char after closing quote must be ':' or whitespace
+        char after = p[nlen];
+        if (after == ':' || after == ' ') {
+            p += nlen;
+            while (*p == ' ' || *p == ':') p++;
+            *out = (float)atof(p);
+            return 0;
+        }
+        p += nlen;
+    }
+    return -1;
+}
+
+static int json_find_string(const char* json, const char* key, char* out, int out_len) {
+    if (!json || !key) return -1;
+    char needle[64];
+    int nlen = snprintf(needle, sizeof(needle), "\"%s\"", key);
+    const char* p = json;
+    while ((p = strstr(p, needle)) != NULL) {
+        char after = p[nlen];
+        if (after == ':' || after == ' ') {
+            p += nlen;
+            while (*p == ' ' || *p == ':') p++;
+            if (*p != '"') return -1;
+            p++;
+            int i = 0;
+            while (*p && *p != '"' && i < out_len - 1) {
+                out[i++] = *p++;
+            }
+            out[i] = '\0';
+            return 0;
+        }
+        p += nlen;
+    }
+    return -1;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // set_param
 // ──────────────────────────────────────────────────────────────────────────
 
 static void set_param(void* instance, const char* key, const char* val) {
     plaits_instance_t* inst = (plaits_instance_t*)instance;
+
+    // State restore from patch save/load
+    if (strcmp(key, "state") == 0) {
+        if (!val) return;
+        float fval;
+
+        // Restore engine first (affects other param interpretation)
+        char engine_str[32];
+        if (json_find_string(val, "engine", engine_str, sizeof(engine_str)) == 0) {
+            // Reuse set_param to handle engine switching logic
+            set_param(instance, "engine", engine_str);
+        } else if (json_find_number(val, "engine", &fval) == 0) {
+            char tmp[8];
+            snprintf(tmp, sizeof(tmp), "%d", (int)fval);
+            set_param(instance, "engine", tmp);
+        }
+
+        // Restore numeric params
+        if (json_find_number(val, "harmonics", &fval) == 0)
+            inst->harmonics = fval < 0.0f ? 0.0f : fval > 1.0f ? 1.0f : fval;
+        if (json_find_number(val, "timbre", &fval) == 0)
+            inst->timbre = fval < 0.0f ? 0.0f : fval > 1.0f ? 1.0f : fval;
+        if (json_find_number(val, "morph", &fval) == 0)
+            inst->morph = fval < 0.0f ? 0.0f : fval > 1.0f ? 1.0f : fval;
+        if (json_find_number(val, "decay", &fval) == 0)
+            inst->decay = fval < 0.0f ? 0.0f : fval > 1.0f ? 1.0f : fval;
+        if (json_find_number(val, "lpg_colour", &fval) == 0)
+            inst->lpg_colour = fval < 0.0f ? 0.0f : fval > 1.0f ? 1.0f : fval;
+        if (json_find_number(val, "fm_amount", &fval) == 0)
+            inst->fm_amount = fval < 0.0f ? 0.0f : fval > 1.0f ? 1.0f : fval;
+        if (json_find_number(val, "timbre_mod", &fval) == 0)
+            inst->timbre_mod = fval < 0.0f ? 0.0f : fval > 1.0f ? 1.0f : fval;
+        if (json_find_number(val, "morph_mod", &fval) == 0)
+            inst->morph_mod = fval < 0.0f ? 0.0f : fval > 1.0f ? 1.0f : fval;
+        if (json_find_number(val, "aux_mix", &fval) == 0)
+            inst->aux_mix = fval < 0.0f ? 0.0f : fval > 1.0f ? 1.0f : fval;
+        if (json_find_number(val, "velocity_sensitivity", &fval) == 0)
+            inst->velocity_sensitivity = fval < 0.0f ? 0.0f : fval > 1.0f ? 1.0f : fval;
+        if (json_find_number(val, "octave_transpose", &fval) == 0) {
+            int v = (int)fval;
+            inst->octave_transpose = v < -3 ? -3 : v > 3 ? 3 : v;
+        }
+        if (json_find_number(val, "fm_preset", &fval) == 0) {
+            int v = (int)fval;
+            inst->fm_preset = v < 0 ? 0 : v >= kNumFmPresets ? kNumFmPresets - 1 : v;
+        }
+
+        // Restore legato
+        char legato_str[8];
+        if (json_find_string(val, "legato", legato_str, sizeof(legato_str)) == 0) {
+            inst->legato_mode = (strcmp(legato_str, "on") == 0) ? LEGATO_ON : LEGATO_OFF;
+        }
+        return;
+    }
 
     if (strcmp(key, "engine") == 0) {
         // Accept engine name string (enum) or numeric index (legacy)
@@ -621,6 +722,31 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
         if (len >= buf_len) return -1;
         memcpy(buf, json, len + 1);
         return len;
+    }
+
+    // State serialization for patch save/load
+    if (strcmp(key, "state") == 0) {
+        int offset = 0;
+        offset += snprintf(buf + offset, buf_len - offset,
+            "{\"engine\":\"%s\"", kEngineNames[inst->engine]);
+        offset += snprintf(buf + offset, buf_len - offset,
+            ",\"harmonics\":%.4f,\"timbre\":%.4f,\"morph\":%.4f",
+            inst->harmonics, inst->timbre, inst->morph);
+        offset += snprintf(buf + offset, buf_len - offset,
+            ",\"decay\":%.4f,\"lpg_colour\":%.4f,\"fm_amount\":%.4f",
+            inst->decay, inst->lpg_colour, inst->fm_amount);
+        offset += snprintf(buf + offset, buf_len - offset,
+            ",\"timbre_mod\":%.4f,\"morph_mod\":%.4f,\"aux_mix\":%.4f",
+            inst->timbre_mod, inst->morph_mod, inst->aux_mix);
+        offset += snprintf(buf + offset, buf_len - offset,
+            ",\"legato\":\"%s\",\"velocity_sensitivity\":%.4f",
+            inst->legato_mode == LEGATO_ON ? "on" : "off",
+            inst->velocity_sensitivity);
+        offset += snprintf(buf + offset, buf_len - offset,
+            ",\"octave_transpose\":%d,\"fm_preset\":%d}",
+            inst->octave_transpose, inst->fm_preset);
+        if (offset < 0 || offset >= buf_len) return -1;
+        return offset;
     }
 
     // chain_params — parameter metadata for Shadow UI knob editing
