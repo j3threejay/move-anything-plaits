@@ -2,7 +2,7 @@
     "id": "plaits",
     "name": "Plaits",
     "abbrev": "PL",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "description": "Macro oscillator with 24 synthesis engines, based on Mutable Instruments Plaits",
     "author": "Emilie Gillet (port: charlesvestal)",
     "license": "MIT",
