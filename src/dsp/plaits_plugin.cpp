@@ -152,6 +152,10 @@ struct plaits_instance_t {
     float velocity_sensitivity;
     int   octave_transpose;
     int   fm_preset;          // 0-31, selects preset within 6-Op FM banks (engines 2-4)
+    float attack;             // 0.0 = instant, 1.0 = ~2s fade-in
+
+    // Attack envelope state
+    float attack_env;         // current attack envelope level, 0.0-1.0
 
     // Render frame buffer (plaits::Voice::Frame has interleaved short out/aux)
     plaits::Voice::Frame frame_buf[BLOCK_SIZE];
@@ -200,6 +204,8 @@ static void* create_instance(const char* module_dir, const char* json_defaults) 
     inst->velocity_sensitivity = 0.5f;
     inst->octave_transpose   = 0;
     inst->fm_preset          = 0;
+    inst->attack             = 0.0f;
+    inst->attack_env         = 1.0f;  // start fully open (no attack)
     inst->legato_mode        = LEGATO_OFF;
 
     // Note state
@@ -265,6 +271,10 @@ static void on_midi(void* instance, const uint8_t* msg, int len, int source) {
         inst->velocity        = vel / 127.0f;
         inst->note_active     = true;
         inst->trigger_pending = retrigger;
+        // Reset attack envelope on retrigger (instant if attack == 0)
+        if (retrigger && inst->attack > 0.0f) {
+            inst->attack_env = 0.0f;
+        }
 
     } else if (status == 0x80 || (status == 0x90 && vel == 0)) {
         // Note Off — remove from stack
@@ -611,6 +621,9 @@ static void set_param(void* instance, const char* key, const char* val) {
     } else if (strcmp(key, "aux_mix") == 0) {
         float v = (float)atof(val);
         inst->aux_mix = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+    } else if (strcmp(key, "attack") == 0) {
+        float v = (float)atof(val);
+        inst->attack = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
     } else if (strcmp(key, "legato") == 0) {
         inst->legato_mode = (strcmp(val, "on") == 0) ? LEGATO_ON : LEGATO_OFF;
     } else if (strcmp(key, "velocity_sensitivity") == 0) {
@@ -665,6 +678,8 @@ static int get_single_param(const plaits_instance_t* inst, const char* key,
         return snprintf(buf, buf_len, "%.3f", inst->morph_mod);
     if (strcmp(key, "aux_mix") == 0)
         return snprintf(buf, buf_len, "%.3f", inst->aux_mix);
+    if (strcmp(key, "attack") == 0)
+        return snprintf(buf, buf_len, "%.3f", inst->attack);
     if (strcmp(key, "legato") == 0)
         return snprintf(buf, buf_len, "%s",
                         inst->legato_mode == LEGATO_ON ? "on" : "off");
@@ -708,6 +723,7 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                     "{\"key\":\"decay\",\"label\":\"Decay\"},"
                     "{\"key\":\"lpg_colour\",\"label\":\"LPG Color\"},"
                     "{\"key\":\"fm_amount\",\"label\":\"FM\"},"
+                    "{\"key\":\"attack\",\"label\":\"Attack\"},"
                     "{\"key\":\"timbre_mod\",\"label\":\"Timbre Mod\"},"
                     "{\"key\":\"morph_mod\",\"label\":\"Morph Mod\"},"
                     "{\"key\":\"aux_mix\",\"label\":\"Mix\"},"
@@ -779,27 +795,29 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
                "\"Bass Drum\",\"Snare Drum\",\"Hi-Hat\"],\"default\":\"VA VCF\","
                "\"refreshes_labels\":true},"
               "{\"key\":\"harmonics\",\"name\":\"%s\",\"type\":\"float\","
-               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
+               "\"min\":0,\"max\":1,\"step\":0.01,\"default\":0.5},"
               "{\"key\":\"timbre\",\"name\":\"%s\",\"type\":\"float\","
-               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
+               "\"min\":0,\"max\":1,\"step\":0.01,\"default\":0.5},"
               "{\"key\":\"morph\",\"name\":\"%s\",\"type\":\"float\","
-               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
+               "\"min\":0,\"max\":1,\"step\":0.01,\"default\":0.5},"
               "{\"key\":\"decay\",\"name\":\"Decay\",\"type\":\"float\","
-               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
+               "\"min\":0,\"max\":1,\"step\":0.01,\"default\":0.5},"
               "{\"key\":\"lpg_colour\",\"name\":\"LPG Color\",\"type\":\"float\","
-               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
+               "\"min\":0,\"max\":1,\"step\":0.01,\"default\":0.5},"
               "{\"key\":\"fm_amount\",\"name\":\"%s\",\"type\":\"float\","
-               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
+               "\"min\":0,\"max\":1,\"step\":0.01,\"default\":0.0},"
               "{\"key\":\"aux_mix\",\"name\":\"Mix\",\"type\":\"float\","
-               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
+               "\"min\":0,\"max\":1,\"step\":0.01,\"default\":0.0},"
+              "{\"key\":\"attack\",\"name\":\"Attack\",\"type\":\"float\","
+               "\"min\":0,\"max\":1,\"step\":0.01,\"default\":0.0},"
               "{\"key\":\"timbre_mod\",\"name\":\"Timbre Mod\",\"type\":\"float\","
-               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
+               "\"min\":0,\"max\":1,\"step\":0.01,\"default\":0.0},"
               "{\"key\":\"morph_mod\",\"name\":\"Morph Mod\",\"type\":\"float\","
-               "\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.0},"
+               "\"min\":0,\"max\":1,\"step\":0.01,\"default\":0.0},"
               "{\"key\":\"legato\",\"name\":\"Legato\",\"type\":\"enum\","
                "\"options\":[\"off\",\"on\"],\"default\":\"off\"},"
               "{\"key\":\"velocity_sensitivity\",\"name\":\"Vel Sens\","
-               "\"type\":\"float\",\"min\":0,\"max\":1,\"step\":0.02,\"default\":0.5},"
+               "\"type\":\"float\",\"min\":0,\"max\":1,\"step\":0.01,\"default\":0.5},"
               "{\"key\":\"octave_transpose\",\"name\":\"Octave\",\"type\":\"int\","
                "\"min\":-3,\"max\":3,\"default\":0}"
             "]",
@@ -928,6 +946,15 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
         ct_decay_rate = 1.0f - 1.0f / (release_s * 44100.0f);
     }
 
+    // Attack envelope: exponential rise from 0→1 on note-on.
+    // attack=0 → instant (no ramp), attack=1 → ~2s rise.
+    // Rate computed per-sample: coefficient approaches 1.0 smoothly.
+    float attack_rate = 1.0f;  // 1.0 means "already there" (no attack)
+    if (inst->attack > 0.0f && inst->attack_env < 1.0f) {
+        float attack_s = 0.005f + inst->attack * inst->attack * 2.0f;
+        attack_rate = 1.0f - expf(-1.0f / (attack_s * 44100.0f));
+    }
+
     for (int i = 0; i < frames; i++) {
         // Frame values are already int16 range (short)
         float out_f = -inst->frame_buf[i].out / 32767.0f * eg;
@@ -939,6 +966,13 @@ static void render_block(void* instance, int16_t* out_lr, int frames) {
         // Blending is intentional — allows mixing the two drum voices via the Mix knob.
         const float blended = out_f * (1.0f - inst->aux_mix) + aux_f * inst->aux_mix;
         float sample = blended * gain;
+
+        // Attack envelope: smooth exponential ramp up
+        if (inst->attack_env < 1.0f) {
+            inst->attack_env += attack_rate * (1.0f - inst->attack_env);
+            if (inst->attack_env > 0.999f) inst->attack_env = 1.0f;
+            sample *= inst->attack_env;
+        }
 
         // Chiptune gate envelope: hold while note active, decay on release
         if (inst->engine == 7) {

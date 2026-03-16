@@ -153,7 +153,7 @@ void Voice::Render(
   }
   
   const float short_decay = (200.0f * kBlockSize) / kSampleRate *
-      SemitonesToRatio(-96.0f * patch.decay);
+      SemitonesToRatio(-120.0f * patch.decay);
 
   decay_envelope_.Process(short_decay * 2.0f);
 
@@ -234,7 +234,7 @@ void Voice::Render(
   if (!lpg_bypass) {
     const float hf = patch.lpg_colour;
     const float decay_tail = (20.0f * kBlockSize) / kSampleRate *
-        SemitonesToRatio(-72.0f * patch.decay + 12.0f * hf) - short_decay;
+        SemitonesToRatio(-96.0f * patch.decay + 12.0f * hf) - short_decay;
     
     if (modulations.level_patched) {
       lpg_envelope_.ProcessLP(compressed_level, short_decay, decay_tail, hf);
