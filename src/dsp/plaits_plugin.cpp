@@ -529,6 +529,8 @@ static void set_param(void* instance, const char* key, const char* val) {
             inst->morph_mod = fval < 0.0f ? 0.0f : fval > 1.0f ? 1.0f : fval;
         if (json_find_number(val, "aux_mix", &fval) == 0)
             inst->aux_mix = fval < 0.0f ? 0.0f : fval > 1.0f ? 1.0f : fval;
+        if (json_find_number(val, "attack", &fval) == 0)
+            inst->attack = fval < 0.0f ? 0.0f : fval > 1.0f ? 1.0f : fval;
         if (json_find_number(val, "velocity_sensitivity", &fval) == 0)
             inst->velocity_sensitivity = fval < 0.0f ? 0.0f : fval > 1.0f ? 1.0f : fval;
         if (json_find_number(val, "octave_transpose", &fval) == 0) {
@@ -754,6 +756,8 @@ static int get_param(void* instance, const char* key, char* buf, int buf_len) {
         offset += snprintf(buf + offset, buf_len - offset,
             ",\"timbre_mod\":%.4f,\"morph_mod\":%.4f,\"aux_mix\":%.4f",
             inst->timbre_mod, inst->morph_mod, inst->aux_mix);
+        offset += snprintf(buf + offset, buf_len - offset,
+            ",\"attack\":%.4f", inst->attack);
         offset += snprintf(buf + offset, buf_len - offset,
             ",\"legato\":\"%s\",\"velocity_sensitivity\":%.4f",
             inst->legato_mode == LEGATO_ON ? "on" : "off",
