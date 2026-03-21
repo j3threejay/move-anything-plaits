@@ -1,4 +1,4 @@
-// Plaits macro oscillator plugin for Move Anything
+// Plaits macro oscillator plugin for Schwung
 // Based on Mutable Instruments Plaits by Emilie Gillet
 // Port by charlesvestal
 

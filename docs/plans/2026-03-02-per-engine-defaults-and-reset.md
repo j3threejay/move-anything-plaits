@@ -287,7 +287,7 @@ After both commits:
 cd ~/move-everything-parent/move-anything-plaits && ./scripts/install.sh
 ```
 
-Expected: `Done! Restart Move Anything to load the module.`
+Expected: `Done! Restart Schwung to load the module.`
 
 ---
 

@@ -1,5 +1,5 @@
 /*
- * Move Anything Plugin API v2 - convenience header
+ * Schwung Plugin API v2 - convenience header
  *
  * plugin_api_v2_t and host_api_v1_t are both defined in plugin_api_v1.h.
  * This header re-exports them for code that wants to include only v2.
